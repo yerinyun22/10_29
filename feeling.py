@@ -31,7 +31,6 @@ h1, h2, h3 { text-align: center; }
     background: linear-gradient(90deg, #f5a3d1, #f783ac);
     transform: scale(1.07);
 }
-.stSlider>div>div>div>div { color: #555; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -46,7 +45,7 @@ mood = st.selectbox("현재 마음 상태를 고르세요:",
 energy = st.slider("✨ 오늘의 에너지 레벨", 0, 10, 5)
 time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# --- 감정 색상 매핑  ---
+# --- 감정 색상 매핑 (핑크톤) ---
 color_map = {
     "😊 평온": "#ffcce6", "💖 설렘": "#ff99cc", "🌸 희망": "#ffb3d9",
     "🔥 열정": "#ff4d94", "💭 혼란": "#e6cce6", "💤 피곤": "#ffd6e6",
@@ -70,7 +69,7 @@ if len(st.session_state["data"]) > 0:
 
     # Streamlit 컬럼으로 그라데이션 블록 시각화
     cols = st.columns(len(df))
-    for i, row in enumerate(df.itertuples()):
+    for i, row in enumerate(df.itertuples(index=False)):  # index=False로 컬럼명 그대로 사용 가능
         with cols[i]:
             st.markdown(f"""
             <div style="
@@ -91,7 +90,7 @@ if len(st.session_state["data"]) > 0:
 
     # --- 감정 기록 카드 ---
     st.markdown("#### 📊 기록 카드")
-    for row in df.itertuples():
+    for row in df.itertuples(index=False):
         st.markdown(f"""
         <div style="display:flex; align-items:center; margin-bottom:6px; padding:4px;">
             <div style="width:35px; height:35px; background:{row.color}; border-radius:50%; margin-right:12px;"></div>
