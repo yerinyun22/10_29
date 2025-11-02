@@ -14,7 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 스타일 적용
+# -------------------------
+# 스타일 적용: 전체 흰 배경, 검은 글씨
+# -------------------------
 st.markdown("""
 <style>
 body { background-color: white; color: black; }
@@ -45,7 +47,7 @@ def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
     return R * c
 
 # -------------------------
-# 데이터 로드 (Google Drive)
+# 데이터 로드 (Google Drive 링크)
 # -------------------------
 @st.cache_data
 def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
@@ -64,12 +66,14 @@ data = load_data()
 has_latlon = {"위도", "경도"}.issubset(set(data.columns))
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
+severity_related_cols = set(["사망자수", "중상자수", "경상자수", "사고건수", "사상자수"]) & set(data.columns)
 
 # -------------------------
 # 사이드바: 필터
 # -------------------------
 st.sidebar.header("🔎 필터 · 검색 / 안전경로")
 
+# 연도 범위 선택
 if year_col:
     years = sorted(data[year_col].dropna().unique().astype(int))
     sel_year_range = st.sidebar.slider(
@@ -81,6 +85,7 @@ if year_col:
 else:
     sel_year_range = None
 
+# 사고유형 선택
 if type_col:
     types = sorted(data[type_col].dropna().unique())
     sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
@@ -125,16 +130,18 @@ st.title("🛡️ 사고다발지역 안전지도")
 st.markdown("사고 데이터 기반 **히트맵/클러스터** 시각화 및 **안전경로 후보 생성**")
 
 # -------------------------
-# 지도 시각화
+# 지도 설정
 # -------------------------
 if not has_latlon:
-    st.error("위도/경도 컬럼 필요")
+    st.error("위도/경도 컬럼이 필요합니다.")
 else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
+    # 확대/축소 버튼
+    zoom_level = st.sidebar.slider("지도 확대/축소", min_value=5, max_value=15, value=6)
+
     layers = [
-        # Heatmap
         pdk.Layer(
             "HeatmapLayer",
             data=df,
@@ -143,7 +150,6 @@ else:
             weight="sev_score",
             radiusPixels=60
         ),
-        # Scatterplot
         pdk.Layer(
             "ScatterplotLayer",
             data=df,
@@ -154,18 +160,15 @@ else:
         )
     ]
 
-    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7)
-
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom_level)
     deck = pdk.Deck(
         map_style="mapbox://styles/mapbox/light-v9",
         initial_view_state=view_state,
         layers=layers,
-        tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}", "style":{"color":"black"}},
-        dragRotate=False,
-        scrollZoom=False,
-        doubleClickZoom=False,
-        touchZoom=False,
-        touchRotate=False
+        tooltip={
+            "html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}",
+            "style":{"color":"black"}  # 검은 글씨
+        }
     )
 
     st.pydeck_chart(deck, use_container_width=True)
@@ -177,9 +180,19 @@ st.subheader("📊 통계")
 if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
     by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
+    fig.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font_color='black'
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 if type_col and "사고건수" in df.columns:
     by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
+    fig2.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font_color='black'
+    )
     st.plotly_chart(fig2, use_container_width=True)
