@@ -19,7 +19,7 @@ st.set_page_config(
 # -------------------------
 st.markdown("""
 <style>
-body { background-color: white; color: black; }
+body { background-color: white; color: white; }
 h1, h2, h3, h4, h5, h6, p, div, span { color: black !important; }
 </style>
 """, unsafe_allow_html=True)
