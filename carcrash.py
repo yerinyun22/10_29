@@ -24,29 +24,6 @@ body { background-color: white; color: black; }
 """, unsafe_allow_html=True)
 
 # -------------------------
-# 유틸: Haversine 거리 계산
-# -------------------------
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return R * c
-
-def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
-    R = 6371.0
-    lat1r = np.radians(lat1)
-    lon1r = np.radians(lon1)
-    lat2r = np.radians(lat_arr)
-    lon2r = np.radians(lon_arr)
-    dlat = lat2r - lat1r
-    dlon = lon2r - lon1r
-    a = np.sin(dlat / 2)**2 + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-    return R * c
-
-# -------------------------
 # 데이터 로드
 # -------------------------
 @st.cache_data
@@ -66,88 +43,68 @@ data = load_data()
 has_latlon = {"위도", "경도"}.issubset(set(data.columns))
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-severity_related_cols = set(["사망자수", "중상자수", "경상자수", "사고건수", "사상자수"]) & set(data.columns)
 
 # -------------------------
-# 사이드바: 필터
+# 앱 모드 선택 (지도 / 통계)
 # -------------------------
-st.sidebar.header("🔎 필터 · 검색 / 안전경로")
-
-# 연도 범위 선택
-if year_col:
-    years = sorted(data[year_col].dropna().unique().astype(int))
-    sel_year_range = st.sidebar.slider(
-        "연도 범위 선택",
-        min_value=int(min(years)),
-        max_value=int(max(years)),
-        value=(int(min(years)), int(max(years)))
-    )
-else:
-    sel_year_range = None
-
-# 사고유형 선택
-if type_col:
-    types = sorted(data[type_col].dropna().unique())
-    sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
-else:
-    sel_types = None
-
-# 통계 표시 선택
-show_stats = st.sidebar.checkbox("📊 통계 보기", value=False)
+mode = st.sidebar.radio("화면 선택", ["지도 보기", "통계 보기"])
 
 # -------------------------
-# 데이터 필터링
+# 지도 필터 (지도 모드 전용)
 # -------------------------
-df = data.copy()
-if sel_year_range and year_col:
-    df = df[(df[year_col] >= sel_year_range[0]) & (df[year_col] <= sel_year_range[1])]
-if sel_types and type_col:
-    df = df[df[type_col].isin(sel_types)]
+if mode == "지도 보기":
+    st.title("🛡️ 사고다발지역 안전지도 - 지도 화면")
 
-# -------------------------
-# 심각도 계산
-# -------------------------
-def severity_score(row):
-    score = 0.0
-    if "사망자수" in row.index: score += 10.0 * (row.get("사망자수",0) or 0)
-    if "중상자수" in row.index: score += 3.0 * (row.get("중상자수",0) or 0)
-    if "경상자수" in row.index: score += 1.0 * (row.get("경상자수",0) or 0)
-    if "사고건수" in row.index: score += 0.5 * (row.get("사고건수",0) or 0)
-    return score
+    df_map = data.copy()
 
-df["sev_score"] = df.apply(severity_score, axis=1)
+    # 연도 필터
+    if year_col:
+        years = sorted(df_map[year_col].dropna().unique().astype(int))
+        sel_year_range = st.sidebar.slider(
+            "연도 범위 선택",
+            min_value=int(min(years)),
+            max_value=int(max(years)),
+            value=(int(min(years)), int(max(years)))
+        )
+        df_map = df_map[(df_map[year_col] >= sel_year_range[0]) & (df_map[year_col] <= sel_year_range[1])]
 
-def severity_to_color(s):
-    if s >= 10: return [180,0,0,200]
-    elif s >=5: return [230,40,40,180]
-    elif s >=2: return [255,140,0,150]
-    elif s >0: return [255,210,0,130]
-    else: return [150,150,150,90]
+    # 사고유형 필터
+    if type_col:
+        types = sorted(df_map[type_col].dropna().unique())
+        sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
+        df_map = df_map[df_map[type_col].isin(sel_types)]
 
-df["color"] = df["sev_score"].apply(severity_to_color)
+    # 심각도 계산
+    def severity_score(row):
+        score = 0.0
+        if "사망자수" in row.index: score += 10.0 * (row.get("사망자수",0) or 0)
+        if "중상자수" in row.index: score += 3.0 * (row.get("중상자수",0) or 0)
+        if "경상자수" in row.index: score += 1.0 * (row.get("경상자수",0) or 0)
+        if "사고건수" in row.index: score += 0.5 * (row.get("사고건수",0) or 0)
+        return score
 
-# -------------------------
-# 타이틀
-# -------------------------
-st.title("🛡️ 사고다발지역 안전지도")
-st.markdown("사고 데이터 기반 **히트맵/클러스터** 시각화 및 **안전경로 후보 생성**")
+    df_map["sev_score"] = df_map.apply(severity_score, axis=1)
 
-# -------------------------
-# 지도 설정
-# -------------------------
-if not has_latlon:
-    st.error("위도/경도 컬럼이 필요합니다.")
-else:
-    center_lat = float(df["위도"].mean())
-    center_lon = float(df["경도"].mean())
+    def severity_to_color(s):
+        if s >= 10: return [180,0,0,200]
+        elif s >=5: return [230,40,40,180]
+        elif s >=2: return [255,140,0,150]
+        elif s >0: return [255,210,0,130]
+        else: return [150,150,150,90]
 
-    # 확대/축소 버튼
-    zoom_level = st.sidebar.slider("지도 확대/축소", min_value=5, max_value=15, value=6)
+    df_map["color"] = df_map["sev_score"].apply(severity_to_color)
+
+    # 지도 중심
+    center_lat = float(df_map["위도"].mean())
+    center_lon = float(df_map["경도"].mean())
+
+    # 지도 확대/축소 버튼 (지도 위에만)
+    zoom_level = st.slider("지도 확대/축소", min_value=5, max_value=15, value=6)
 
     layers = [
         pdk.Layer(
             "HeatmapLayer",
-            data=df,
+            data=df_map,
             get_position=["경도","위도"],
             aggregation="SUM",
             weight="sev_score",
@@ -155,7 +112,7 @@ else:
         ),
         pdk.Layer(
             "ScatterplotLayer",
-            data=df,
+            data=df_map,
             get_position=["경도","위도"],
             get_color="color",
             get_radius=60,
@@ -170,21 +127,40 @@ else:
         layers=layers,
         tooltip={
             "html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}",
-            "style":{"color":"black"}  # 툴팁 글씨 검정
+            "style":{"color":"black"}
         }
     )
 
     st.pydeck_chart(deck, use_container_width=True)
 
 # -------------------------
-# 통계 (체크박스 선택 시만)
+# 통계 모드
 # -------------------------
-if show_stats:
-    st.subheader("📊 통계")
+else:
+    st.title("📊 사고 통계 화면")
+
+    df_stats = data.copy()
+
+    # 통계에서도 연도 필터
+    if year_col:
+        years = sorted(df_stats[year_col].dropna().unique().astype(int))
+        sel_year_range = st.sidebar.slider(
+            "연도 범위 선택 (통계용)",
+            min_value=int(min(years)),
+            max_value=int(max(years)),
+            value=(int(min(years)), int(max(years)))
+        )
+        df_stats = df_stats[(df_stats[year_col] >= sel_year_range[0]) & (df_stats[year_col] <= sel_year_range[1])]
+
+    # 통계에서도 사고유형 필터
+    if type_col:
+        types = sorted(df_stats[type_col].dropna().unique())
+        sel_types = st.sidebar.multiselect("사고유형 필터 (통계용)", options=types, default=types)
+        df_stats = df_stats[df_stats[type_col].isin(sel_types)]
 
     # 구별 사고건수 Top 15
-    if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
-        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
+    if "사고다발지역시도시군구" in df_stats.columns and "사고건수" in df_stats.columns:
+        by_dist = df_stats.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
         fig = px.bar(
             by_dist.head(15),
             x="사고다발지역시도시군구",
@@ -204,8 +180,8 @@ if show_stats:
         st.plotly_chart(fig, use_container_width=True)
 
     # 사고유형별 비율
-    if type_col and "사고건수" in df.columns:
-        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+    if type_col and "사고건수" in df_stats.columns:
+        by_type = df_stats.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
         fig2 = px.pie(
             by_type,
             values="사고건수",
