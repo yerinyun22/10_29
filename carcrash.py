@@ -165,7 +165,7 @@ else:
 st.subheader("📊 통계")
 if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
     by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
-    fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구"], y="사고건수", title="구별 사고건수 Top 15")
+    fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
     st.plotly_chart(fig, use_container_width=True)
 
 if type_col and "사고건수" in df.columns:
