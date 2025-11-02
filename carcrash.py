@@ -155,11 +155,11 @@ else:
 
     view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
 
-    # ❌ tooltip 완전히 제거 → BitmapLayer와 충돌 없음
+    # ✔ map_style="light" + tooltip 제거 → TypeError 안전
     deck = pdk.Deck(
         layers=[image_layer, heat_layer, scatter_layer],
         initial_view_state=view_state,
-        map_style=None,
+        map_style="light",
         controller=False
     )
 
