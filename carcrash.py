@@ -4,25 +4,25 @@ import numpy as np
 import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
+import json
+import requests
 
 # -------------------------
 # 페이지 설정
 # -------------------------
-st.set_page_config(
-    page_title="🛡️ 사고다발지역 안전지도",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="🛡️ 사고다발지역 안전지도", layout="wide")
 
-# 스타일 적용
+# -------------------------
+# CSS: 흰 배경 + 검은 글씨
+# -------------------------
 st.markdown("""
 <style>
-body { background-color: white; color: black; }
+.stApp { background-color: white; color: black; }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------
-# 유틸: Haversine 거리 계산
+# Haversine 거리 계산
 # -------------------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -32,20 +32,8 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
 
-def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
-    R = 6371.0
-    lat1r = np.radians(lat1)
-    lon1r = np.radians(lon1)
-    lat2r = np.radians(lat_arr)
-    lon2r = np.radians(lon_arr)
-    dlat = lat2r - lat1r
-    dlon = lon2r - lon1r
-    a = np.sin(dlat / 2)**2 + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-    return R * c
-
 # -------------------------
-# 데이터 로드 (Google Drive 링크)
+# 데이터 로드
 # -------------------------
 @st.cache_data
 def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
@@ -64,14 +52,12 @@ data = load_data()
 has_latlon = {"위도", "경도"}.issubset(set(data.columns))
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-severity_related_cols = set(["사망자수", "중상자수", "경상자수", "사고건수", "사상자수"]) & set(data.columns)
 
 # -------------------------
-# 사이드바: 필터
+# 사이드바 필터
 # -------------------------
 st.sidebar.header("🔎 필터 · 검색 / 안전경로")
 
-# 연도 범위 선택
 if year_col:
     years = sorted(data[year_col].dropna().unique().astype(int))
     sel_year_range = st.sidebar.slider(
@@ -83,7 +69,6 @@ if year_col:
 else:
     sel_year_range = None
 
-# 사고유형 선택
 if type_col:
     types = sorted(data[type_col].dropna().unique())
     sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
@@ -104,10 +89,10 @@ if sel_types and type_col:
 # -------------------------
 def severity_score(row):
     score = 0.0
-    if "사망자수" in row.index: score += 10.0 * (row.get("사망자수",0) or 0)
-    if "중상자수" in row.index: score += 3.0 * (row.get("중상자수",0) or 0)
-    if "경상자수" in row.index: score += 1.0 * (row.get("경상자수",0) or 0)
-    if "사고건수" in row.index: score += 0.5 * (row.get("사고건수",0) or 0)
+    score += 10.0 * (row.get("사망자수", 0) or 0)
+    score += 3.0 * (row.get("중상자수", 0) or 0)
+    score += 1.0 * (row.get("경상자수", 0) or 0)
+    score += 0.5 * (row.get("사고건수", 0) or 0)
     return score
 
 df["sev_score"] = df.apply(severity_score, axis=1)
@@ -128,18 +113,33 @@ st.title("🛡️ 사고다발지역 안전지도")
 st.markdown("사고 데이터 기반 **히트맵/클러스터** 시각화 및 **안전경로 후보 생성**")
 
 # -------------------------
-# 지도 설정
+# 한국 경계 PolygonLayer (예제)
+# -------------------------
+# 간단 예제: 실제 사용 시 한국 시도 경계 GeoJSON으로 교체
+korea_geojson_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries/KOR.geo.json"
+korea_boundary = requests.get(korea_geojson_url).json()
+
+# -------------------------
+# 지도
 # -------------------------
 if not has_latlon:
-    st.error("위도/경도 컬럼이 필요합니다.")
+    st.error("위도/경도 컬럼 필요")
 else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # 확대/축소 버튼
-    zoom_level = st.sidebar.slider("지도 확대/축소", min_value=5, max_value=15, value=6)
-
     layers = [
+        # 한국 외곽 경계
+        pdk.Layer(
+            "PolygonLayer",
+            data=[{"polygon": korea_boundary["features"][0]["geometry"]["coordinates"][0]}],
+            stroked=True,
+            get_polygon="polygon",
+            get_fill_color=[240,240,240,10],
+            get_line_color=[0,0,0,200],
+            line_width_min_pixels=2
+        ),
+        # 히트맵
         pdk.Layer(
             "HeatmapLayer",
             data=df,
@@ -148,21 +148,25 @@ else:
             weight="sev_score",
             radiusPixels=60
         ),
+        # 스캐터
         pdk.Layer(
             "ScatterplotLayer",
             data=df,
             get_position=["경도","위도"],
             get_color="color",
             get_radius=60,
-            pickable=True
+            pickable=True,
+            auto_highlight=True
         )
     ]
 
-    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom_level)
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
+
     deck = pdk.Deck(
-        map_style="mapbox://styles/mapbox/light-v9",
-        initial_view_state=view_state,
         layers=layers,
+        initial_view_state=view_state,
+        map_style="light",
+        controller=False,  # 이동/확대/축소 막기
         tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}", "style":{"color":"white"}}
     )
 
