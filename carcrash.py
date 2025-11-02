@@ -20,6 +20,7 @@ st.set_page_config(
 st.markdown("""
 <style>
 body { background-color: white; color: black; }
+h1, h2, h3, h4, h5, h6, p, div, span { color: black !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,7 +51,7 @@ type_col = "사고유형구분" if "사고유형구분" in data.columns else Non
 mode = st.sidebar.radio("화면 선택", ["지도 보기", "통계 보기"])
 
 # -------------------------
-# 지도 필터 (지도 모드 전용)
+# 지도 모드
 # -------------------------
 if mode == "지도 보기":
     st.title("🛡️ 사고다발지역 안전지도 - 지도 화면")
@@ -98,9 +99,6 @@ if mode == "지도 보기":
     center_lat = float(df_map["위도"].mean())
     center_lon = float(df_map["경도"].mean())
 
-    # 지도 확대/축소 버튼 (지도 위에만)
-    zoom_level = st.slider("지도 확대/축소", min_value=5, max_value=15, value=6)
-
     layers = [
         pdk.Layer(
             "HeatmapLayer",
@@ -120,7 +118,7 @@ if mode == "지도 보기":
         )
     ]
 
-    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=zoom_level)
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6)  # 고정 zoom
     deck = pdk.Deck(
         map_style="mapbox://styles/mapbox/light-v9",
         initial_view_state=view_state,
@@ -141,7 +139,7 @@ else:
 
     df_stats = data.copy()
 
-    # 통계에서도 연도 필터
+    # 통계 연도 필터
     if year_col:
         years = sorted(df_stats[year_col].dropna().unique().astype(int))
         sel_year_range = st.sidebar.slider(
@@ -152,7 +150,7 @@ else:
         )
         df_stats = df_stats[(df_stats[year_col] >= sel_year_range[0]) & (df_stats[year_col] <= sel_year_range[1])]
 
-    # 통계에서도 사고유형 필터
+    # 통계 사고유형 필터
     if type_col:
         types = sorted(df_stats[type_col].dropna().unique())
         sel_types = st.sidebar.multiselect("사고유형 필터 (통계용)", options=types, default=types)
