@@ -4,4 +4,4 @@ plotly
 numpy
 gdown
 requests
-json
+
