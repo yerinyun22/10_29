@@ -3,3 +3,4 @@ pydeck
 plotly
 numpy
 gdown
+requests
