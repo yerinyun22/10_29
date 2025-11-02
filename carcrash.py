@@ -10,7 +10,7 @@ from math import radians, sin, cos, sqrt, atan2
 
 st.set_page_config(page_title="사고다발지역 안전지도(근사)", layout="wide")
 url = "https://drive.google.com/file/d/1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu/view?usp=sharing"
-df = pd.read_csv(url, encoding="utf-8")  # 또는 cp949
+df = pd.read_csv(url, encoding="cp949")  # 또는 cp949
 
 # -------------------------
 # 유틸: 거리(위도/경도) 계산 — Haversine (km)
