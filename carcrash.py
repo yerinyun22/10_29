@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # -------------------------
-# 💡 흰 배경 + 검은 글씨 스타일 적용
+# 💡 흰 배경 + 검은 글씨 + 특정 글자 흰색
 # -------------------------
 st.markdown("""
 <style>
@@ -28,6 +28,11 @@ body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid
 }
 h1, h2, h3, h4, h5, h6, p, label, div {
     color: black !important;
+}
+/* 통계 유형 선택 부분 텍스트를 흰색으로 */
+div[data-testid="stSelectbox"] label {
+    color: white !important;
+    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -58,7 +63,7 @@ def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup
 data = load_data()
 
 # -------------------------
-# 컬럼 체크
+# 컬럼 확인
 # -------------------------
 has_latlon = {"위도", "경도"}.issubset(set(data.columns))
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
@@ -69,22 +74,15 @@ type_col = "사고유형구분" if "사고유형구분" in data.columns else Non
 # -------------------------
 st.sidebar.header("🔎 옵션 설정")
 
-# 보기 모드 선택
 mode = st.sidebar.radio("화면 모드 선택", ["지도 보기", "통계 보기"])
 
-# 연도 필터
 if year_col:
     years = sorted(data[year_col].dropna().unique().astype(int))
-    sel_year_range = st.sidebar.slider(
-        "연도 범위 선택",
-        min_value=int(min(years)),
-        max_value=int(max(years)),
-        value=(int(min(years)), int(max(years)))
-    )
+    sel_year_range = st.sidebar.slider("연도 범위 선택", min_value=int(min(years)), max_value=int(max(years)),
+                                       value=(int(min(years)), int(max(years))))
 else:
     sel_year_range = None
 
-# 사고유형 필터
 if type_col:
     types = sorted(data[type_col].dropna().unique())
     sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
@@ -101,7 +99,7 @@ if sel_types and type_col:
     df = df[df[type_col].isin(sel_types)]
 
 # -------------------------
-# 심각도 계산
+# 심각도 계산 및 색상 강화
 # -------------------------
 def severity_score(row):
     score = 0.0
@@ -114,11 +112,12 @@ def severity_score(row):
 df["sev_score"] = df.apply(severity_score, axis=1)
 
 def severity_to_color(s):
-    if s >= 10: return [180, 0, 0, 200]
-    elif s >= 5: return [230, 40, 40, 180]
-    elif s >= 2: return [255, 140, 0, 150]
-    elif s > 0: return [255, 210, 0, 130]
-    else: return [150, 150, 150, 90]
+    # 🔥 더 눈에 띄는 붉은 계열 강조
+    if s >= 10: return [255, 0, 0, 230]
+    elif s >= 5: return [255, 60, 60, 210]
+    elif s >= 2: return [255, 100, 100, 180]
+    elif s > 0: return [255, 160, 160, 150]
+    else: return [200, 200, 200, 100]
 
 df["color"] = df["sev_score"].apply(severity_to_color)
 
@@ -127,6 +126,7 @@ df["color"] = df["sev_score"].apply(severity_to_color)
 # -------------------------
 if mode == "지도 보기":
     st.title("🗺️ 사고다발지역 지도")
+
     if not has_latlon:
         st.error("위도/경도 컬럼이 필요합니다.")
     else:
@@ -135,20 +135,22 @@ if mode == "지도 보기":
 
         layers = [
             pdk.Layer(
+                "ScatterplotLayer",
+                data=df,
+                get_position=["경도","위도"],
+                get_color="color",
+                get_radius=90,  # 👁️ 더 크게 보이게
+                pickable=True
+            ),
+            pdk.Layer(
                 "HeatmapLayer",
                 data=df,
                 get_position=["경도","위도"],
                 aggregation="SUM",
                 weight="sev_score",
-                radiusPixels=60
-            ),
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=df,
-                get_position=["경도","위도"],
-                get_color="color",
-                get_radius=60,
-                pickable=True
+                radiusPixels=80,
+                intensity=2,
+                threshold=0.05
             )
         ]
 
@@ -157,8 +159,8 @@ if mode == "지도 보기":
             map_style="mapbox://styles/mapbox/light-v9",
             initial_view_state=view_state,
             layers=layers,
-            tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}",
-                     "style":{"color":"white"}}
+            tooltip={"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}",
+                     "style": {"color": "white", "background-color": "rgba(0,0,0,0.7)"}}
         )
         st.pydeck_chart(deck, use_container_width=True)
 
@@ -168,42 +170,34 @@ if mode == "지도 보기":
 elif mode == "통계 보기":
     st.title("📊 사고 통계 분석")
 
-    stat_mode = st.selectbox("보고 싶은 통계 유형 선택", ["시도별 사고건수", "사고유형별 비율", "연도별 추세"])
-    
-    # 1️⃣ 시도별 사고건수
-    if stat_mode == "시도별 사고건수" and "사고다발지역시도시군구" in df.columns:
-        by_city = df.groupby("사고다발지역시도시군구")["사고건수"].sum().reset_index()
-        fig = px.bar(by_city.sort_values("사고건수", ascending=False).head(20),
-                     x="사고다발지역시도시군구", y="사고건수", title="시도별 사고건수 Top 20")
+    # 통계 유형 선택
+    stat_type = st.selectbox(
+        "보고 싶은 통계 유형 선택 👇",
+        ["사고건수 상위 지역", "사고유형 비율", "연도별 추이", "사망자수/부상자수 비교"]
+    )
+
+    # ------------------- 각 통계 유형 -------------------
+    if stat_type == "사고건수 상위 지역" and "사고다발지역시도시군구" in df.columns:
+        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
+        fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="사고건수 상위 지역 Top 15",
+                     color="사고건수", color_continuous_scale="Reds")
         st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("🗺️ 지도에서 시도별 사고 밀도 보기")
-        city_df = df[df["사고다발지역시도시군구"].isin(by_city["사고다발지역시도시군구"].head(20))]
-        center_lat = float(city_df["위도"].mean())
-        center_lon = float(city_df["경도"].mean())
-        city_layer = pdk.Layer(
-            "ScatterplotLayer",
-            data=city_df,
-            get_position=["경도", "위도"],
-            get_color="color",
-            get_radius=70,
-            pickable=True,
-        )
-        st.pydeck_chart(pdk.Deck(map_style="mapbox://styles/mapbox/light-v9",
-                                 initial_view_state=pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6),
-                                 layers=[city_layer]))
 
-    # 2️⃣ 사고유형별 비율
-    elif stat_mode == "사고유형별 비율" and type_col:
-        by_type = df.groupby(type_col)["사고건수"].sum().reset_index()
-        fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
-        st.plotly_chart(fig2, use_container_width=True)
+    elif stat_type == "사고유형 비율" and type_col:
+        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+        fig = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율",
+                     color_discrete_sequence=px.colors.sequential.Reds)
+        st.plotly_chart(fig, use_container_width=True)
 
-    # 3️⃣ 연도별 추세
-    elif stat_mode == "연도별 추세" and year_col:
+    elif stat_type == "연도별 추이" and year_col:
         by_year = df.groupby(year_col)["사고건수"].sum().reset_index()
-        fig3 = px.line(by_year, x=year_col, y="사고건수", title="연도별 사고 추세")
-        st.plotly_chart(fig3, use_container_width=True)
+        fig = px.line(by_year, x=year_col, y="사고건수", title="연도별 사고 발생 추이", markers=True)
+        st.plotly_chart(fig, use_container_width=True)
 
-    else:
-        st.warning("선택한 통계 유형에 필요한 데이터가 없습니다.")
+    elif stat_type == "사망자수/부상자수 비교":
+        cols = [c for c in ["사망자수","중상자수","경상자수"] if c in df.columns]
+        if cols:
+            melted = df[cols].sum().reset_index()
+            melted.columns = ["유형", "인원수"]
+            fig = px.bar(melted, x="유형", y="인원수", title="사망자/부상자 비교", color="유형", color_discrete_sequence=px.colors.sequential.Reds)
+            st.plotly_chart(fig, use_container_width=True)
