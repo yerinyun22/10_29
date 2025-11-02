@@ -123,16 +123,7 @@ else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # BitmapLayer: 배경 이미지
-    image_layer = pdk.Layer(
-        "BitmapLayer",
-        data=[{"coordinates": [[124.5,33.0],[131.0,33.0],[131.0,39.5],[124.5,39.5]],
-               "image": "/mnt/data/cdd532db-9d32-4d58-a4d8-0729cdda79c7.png"}],
-        bounds=[[124.5,33.0],[131.0,39.5]],
-        opacity=1.0
-    )
-
-    # ScatterplotLayer: 위험지역 강조
+    # ScatterplotLayer: 위험지역 강조 + 클릭 시 팝업
     scatter_layer = pdk.Layer(
         "ScatterplotLayer",
         data=df,
@@ -155,12 +146,16 @@ else:
 
     view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
 
-    # ✔ map_style="light" + tooltip 제거 → TypeError 안전
+    # tooltip으로 클릭 시 정보 표시
     deck = pdk.Deck(
-        layers=[image_layer, heat_layer, scatter_layer],
+        layers=[heat_layer, scatter_layer],
         initial_view_state=view_state,
         map_style="light",
-        controller=False
+        tooltip={
+            "html": "<b>{사고지역위치명}</b><br>사고건수: {사고건수}<br>사상자: {사상자수}",
+            "style": {"color": "black"}
+        },
+        controller=True
     )
 
     st.pydeck_chart(deck, use_container_width=True)
