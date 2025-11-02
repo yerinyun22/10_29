@@ -62,8 +62,7 @@ def haversine(lat1, lon1, lat2, lon2):
 # -------------------------
 # 대한민국 윤곽선 GeoJSON
 # -------------------------
-geojson_url = "https://raw.githubusercontent.com/southkorea/southkorea-maps/master/kostat/2013/json/sido.json"
-geojson_data = requests.get(geojson_url).json()
+
 
 # =====================================================
 # 1️⃣ 지도 보기
