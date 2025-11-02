@@ -1,20 +1,203 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import pydeck as pdk
+import plotly.express as px
+from datetime import datetime
+from math import radians, sin, cos, sqrt, atan2
 
-# Google Drive 링크 → 직접 다운로드 링크
-GOOGLE_DRIVE_ID = "1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu"
-CSV_URL = f"https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_ID}"
+# -------------------------
+# 페이지 설정
+# -------------------------
+st.set_page_config(
+    page_title="🛡️ 사고다발지역 안전지도",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+# 앱 스타일 (흰 배경, 검은 글자)
+st.markdown(
+    """
+    <style>
+    body {
+        background-color: white;
+        color: black;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -------------------------
+# 유틸: Haversine 거리 계산
+# -------------------------
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0  # km
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
+    R = 6371.0
+    lat1r = np.radians(lat1)
+    lon1r = np.radians(lon1)
+    lat2r = np.radians(lat_arr)
+    lon2r = np.radians(lon_arr)
+    dlat = lat2r - lat1r
+    dlon = lon2r - lon1r
+    a = np.sin(dlat / 2)**2 + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
+
+# -------------------------
+# 데이터 로드
+# -------------------------
 @st.cache_data
-def load_data(url=CSV_URL):
+def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
+    # UTF-8 / CP949 시도
     try:
         df = pd.read_csv(url, encoding="utf-8")
-    except UnicodeDecodeError:
+    except Exception:
         df = pd.read_csv(url, encoding="cp949")
-    df.columns = [c.strip() for c in df.columns]  # 컬럼 공백 제거
+    df.columns = [c.strip() for c in df.columns]
     return df
 
-# 데이터 로드
 data = load_data()
-st.write("데이터 미리보기:", data.head())
+
+# -------------------------
+# 사이드바: 데이터 미리보기 옵션
+# -------------------------
+if st.sidebar.checkbox("📊 데이터 미리보기"):
+    st.subheader("데이터 미리보기")
+    st.dataframe(data)
+
+# -------------------------
+# 기본 체크
+# -------------------------
+has_latlon = {"위도", "경도"}.issubset(set(data.columns))
+year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
+type_col = "사고유형구분" if "사고유형구분" in data.columns else None
+severity_related_cols = set(["사망자수", "중상자수", "경상자수", "사고건수", "사상자수"]) & set(data.columns)
+
+# -------------------------
+# 사이드바: 필터
+# -------------------------
+st.sidebar.header("🔎 필터 / 안전경로")
+if year_col:
+    years = sorted(data[year_col].dropna().unique().astype(int))
+    sel_year = st.sidebar.slider("연도 선택", min_value=int(min(years)), max_value=int(max(years)), value=int(max(years)))
+else:
+    sel_year = None
+
+if type_col:
+    types = sorted(data[type_col].dropna().unique())
+    sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
+else:
+    sel_types = None
+
+# -------------------------
+# 데이터 필터링
+# -------------------------
+df = data.copy()
+if sel_year and year_col:
+    df = df[df[year_col] == sel_year]
+if sel_types and type_col:
+    df = df[df[type_col].isin(sel_types)]
+
+# -------------------------
+# 심각도 계산
+# -------------------------
+def severity_score(row):
+    score = 0.0
+    if "사망자수" in row.index:
+        score += 10.0 * (row.get("사망자수", 0) or 0)
+    if "중상자수" in row.index:
+        score += 3.0 * (row.get("중상자수", 0) or 0)
+    if "경상자수" in row.index:
+        score += 1.0 * (row.get("경상자수", 0) or 0)
+    if "사고건수" in row.index:
+        score += 0.5 * (row.get("사고건수", 0) or 0)
+    return score
+
+if len(df) > 0:
+    df["sev_score"] = df.apply(severity_score, axis=1)
+else:
+    df["sev_score"] = []
+
+def severity_to_color(s):
+    if s >= 10: return [180, 0, 0, 200]
+    elif s >= 5: return [230, 40, 40, 180]
+    elif s >= 2: return [255, 140, 0, 150]
+    elif s > 0: return [255, 210, 0, 130]
+    else: return [150, 150, 150, 90]
+
+if len(df) > 0:
+    df["color"] = df["sev_score"].apply(severity_to_color)
+else:
+    df["color"] = []
+
+# -------------------------
+# 메인 타이틀
+# -------------------------
+st.title("🛡️ 사고다발지역 안전지도 — 근사 안전경로 & 위험 레이어")
+st.markdown(
+    "이 앱은 사고 데이터 기반으로 **사고 위치**, **히트맵/클러스터**, **필터/검색**, "
+    "그리고 **근사 안전경로**를 제공합니다.\n\n"
+    ":warning: 실제 내비게이션이 아닌 데이터 기반 근사 안전경로입니다."
+)
+
+# -------------------------
+# 지도 레이어
+# -------------------------
+if not has_latlon:
+    st.error("데이터에 '위도' / '경도' 컬럼이 필요합니다.")
+else:
+    center_lat = float(df["위도"].mean()) if not np.isnan(df["위도"].mean()) else 37.56
+    center_lon = float(df["경도"].mean()) if not np.isnan(df["경도"].mean()) else 126.97
+
+    layers = [
+        # Heatmap
+        pdk.Layer(
+            "HeatmapLayer",
+            data=df,
+            get_position=["경도", "위도"],
+            aggregation="SUM",
+            weight="sev_score" if "sev_score" in df.columns else None,
+            radiusPixels=60,
+        ),
+        # Scatter
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=df,
+            get_position=["경도", "위도"],
+            get_color="color",
+            get_radius=60,
+            pickable=True,
+        ),
+    ]
+
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6)
+    tooltip = {"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}", "style": {"color": "white"}}
+
+    deck = pdk.Deck(
+        map_style="mapbox://styles/mapbox/light-v9",
+        initial_view_state=view_state,
+        layers=layers,
+        tooltip=tooltip,
+    )
+    st.pydeck_chart(deck, use_container_width=True)
+
+# -------------------------
+# 통계
+# -------------------------
+st.subheader("📊 구별/유형별 통계")
+if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
+    by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
+    fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
+    st.plotly_chart(fig, use_container_width=True)
+if type_col and "사고건수" in df.columns:
+    by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+    fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
+    st.plotly_chart(fig2, use_container_width=True)
