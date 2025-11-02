@@ -8,7 +8,7 @@ from math import radians, sin, cos, sqrt, atan2
 import os
 
 # -------------------------
-# Mapbox API 키 (무료 계정 발급 필요)
+# Mapbox API 키
 # -------------------------
 os.environ["MAPBOX_API_KEY"] = "YOUR_MAPBOX_TOKEN"  # ← 본인 토큰 넣기
 
@@ -33,7 +33,7 @@ st.markdown(
 )
 
 # -------------------------
-# 유틸: Haversine 거리 계산 (km)
+# Haversine 거리 계산
 # -------------------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -56,7 +56,7 @@ def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
     return R * c
 
 # -------------------------
-# 데이터 로드 (Google Drive)
+# 데이터 로드
 # -------------------------
 @st.cache_data
 def load_data(url):
@@ -72,11 +72,10 @@ def load_data(url):
 data = load_data("https://drive.google.com/file/d/1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu/view?usp=sharing")
 
 # -------------------------
-# UI: 사이드바 필터
+# 사이드바 필터
 # -------------------------
 st.sidebar.header("🔎 필터 · 검색 · 안전경로")
 
-# 연도 범위 선택
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 if year_col:
     min_year, max_year = int(data[year_col].min()), int(data[year_col].max())
@@ -84,7 +83,6 @@ if year_col:
 else:
     sel_year_range = None
 
-# 사고유형 필터
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
 sel_types = st.sidebar.multiselect(
     "사고유형 필터",
@@ -92,7 +90,6 @@ sel_types = st.sidebar.multiselect(
     default=None
 )
 
-# 사고원인 필터
 possible_cause_cols = [c for c in data.columns if "원인" in c]
 cause_col = possible_cause_cols[0] if possible_cause_cols else None
 sel_causes = st.sidebar.multiselect(
@@ -123,11 +120,7 @@ def severity_score(row):
     score += 0.5 * (row.get("사고건수", 0) or 0)
     return score
 
-if len(df) > 0:
-    df["sev_score"] = df.apply(severity_score, axis=1)
-else:
-    df["sev_score"] = []
-
+df["sev_score"] = df.apply(severity_score, axis=1) if len(df) > 0 else []
 def severity_to_color(s):
     if s >= 10:
         return [180, 0, 0, 200]
@@ -140,13 +133,10 @@ def severity_to_color(s):
     else:
         return [150, 150, 150, 90]
 
-if len(df) > 0:
-    df["color"] = df["sev_score"].apply(severity_to_color)
-else:
-    df["color"] = []
+df["color"] = df["sev_score"].apply(severity_to_color) if len(df) > 0 else []
 
 # -------------------------
-# 메인: 지도 시각화
+# 지도 시각화
 # -------------------------
 st.title("🛡️ 사고다발지역 안전지도 — 커스텀 배경")
 
@@ -157,7 +147,7 @@ else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # BitmapLayer: 이미지 배경 (업로드한 이미지)
+    # BitmapLayer: 이미지 배경
     image_layer = pdk.Layer(
         "BitmapLayer",
         data=[{
@@ -199,11 +189,13 @@ else:
 
     # Deck
     deck = pdk.Deck(
-        map_style=None,  # Mapbox 기본 지도 제거
+        map_style='light',  # ← 여기가 핵심 수정: None → 'light'
         initial_view_state=view_state,
         layers=layers,
-        tooltip={"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}", 
-                 "style": {"color": "black"}},
+        tooltip={
+            "html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}", 
+            "style": {"color": "black"}
+        },
         controller=False  # 이동/확대/축소 불가
     )
 
@@ -222,8 +214,3 @@ if type_col and "사고건수" in df.columns:
     by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
     st.plotly_chart(fig2, use_container_width=True)
-
-# -------------------------
-# 참고 및 한계
-# -------------------------
-
