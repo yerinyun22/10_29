@@ -10,9 +10,27 @@ import os
 # -------------------------
 # Mapbox API 키 (무료 계정 발급 필요)
 # -------------------------
-os.environ["MAPBOX_API_KEY"] = "YOUR_MAPBOX_TOKEN"  # ← 여기 본인 토큰 넣기
+os.environ["MAPBOX_API_KEY"] = "YOUR_MAPBOX_TOKEN"  # ← 본인 토큰 넣기
 
+# -------------------------
+# 페이지 설정
+# -------------------------
 st.set_page_config(page_title="사고다발지역 안전지도", layout="wide", page_icon="🛡️")
+
+# -------------------------
+# CSS: 배경 흰색, 글씨 검은색
+# -------------------------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background-color: white;
+        color: black;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # -------------------------
 # 유틸: Haversine 거리 계산 (km)
@@ -68,12 +86,20 @@ else:
 
 # 사고유형 필터
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-sel_types = st.sidebar.multiselect("사고유형 필터", options=sorted(data[type_col].dropna().unique()) if type_col else [], default=None)
+sel_types = st.sidebar.multiselect(
+    "사고유형 필터",
+    options=sorted(data[type_col].dropna().unique()) if type_col else [],
+    default=None
+)
 
 # 사고원인 필터
 possible_cause_cols = [c for c in data.columns if "원인" in c]
 cause_col = possible_cause_cols[0] if possible_cause_cols else None
-sel_causes = st.sidebar.multiselect("사고원인 필터", options=sorted(data[cause_col].dropna().unique()) if cause_col else [], default=None)
+sel_causes = st.sidebar.multiselect(
+    "사고원인 필터",
+    options=sorted(data[cause_col].dropna().unique()) if cause_col else [],
+    default=None
+)
 
 # -------------------------
 # 데이터 필터링 적용
@@ -122,7 +148,7 @@ else:
 # -------------------------
 # 메인: 지도 시각화
 # -------------------------
-st.title("🛡️ 사고다발지역 안전지도 — 지도 앱 스타일")
+st.title("🛡️ 사고다발지역 안전지도 — 커스텀 배경")
 
 has_latlon = {"위도", "경도"}.issubset(set(df.columns))
 if not has_latlon:
@@ -131,9 +157,20 @@ else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # 레이어
-    layers = []
-    layers.append(
+    # BitmapLayer: 이미지 배경 (업로드한 이미지)
+    image_layer = pdk.Layer(
+        "BitmapLayer",
+        data=[{
+            "coordinates": [[124.5, 33.0], [131.0, 33.0], [131.0, 39.5], [124.5, 39.5]],
+            "image": "/mnt/data/cdd532db-9d32-4d58-a4d8-0729cdda79c7.png"
+        }],
+        bounds=[[124.5, 33.0], [131.0, 39.5]],
+        opacity=1.0
+    )
+
+    # Heatmap + Scatter
+    layers = [
+        image_layer,
         pdk.Layer(
             "HeatmapLayer",
             data=df,
@@ -141,9 +178,7 @@ else:
             aggregation="SUM",
             weight="sev_score",
             radiusPixels=60
-        )
-    )
-    layers.append(
+        ),
         pdk.Layer(
             "ScatterplotLayer",
             data=df,
@@ -152,7 +187,7 @@ else:
             get_radius=60,
             pickable=True
         )
-    )
+    ]
 
     # ViewState
     view_state = pdk.ViewState(
@@ -164,10 +199,12 @@ else:
 
     # Deck
     deck = pdk.Deck(
-        map_style="mapbox://styles/mapbox/light-v10",  # 연한 회색 + 도로/건물
+        map_style=None,  # Mapbox 기본 지도 제거
         initial_view_state=view_state,
         layers=layers,
-        tooltip={"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}", "style": {"color": "white"}}
+        tooltip={"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}", 
+                 "style": {"color": "black"}},
+        controller=False  # 이동/확대/축소 불가
     )
 
     st.pydeck_chart(deck, use_container_width=True)
@@ -180,8 +217,13 @@ if "사고다발지역시도시군구" in df.columns and "사고건수" in df.co
     by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
     st.plotly_chart(fig, use_container_width=True)
+
 if type_col and "사고건수" in df.columns:
     by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
     st.plotly_chart(fig2, use_container_width=True)
+
+# -------------------------
+# 참고 및 한계
+# -------------------------
 
