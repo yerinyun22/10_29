@@ -47,7 +47,7 @@ def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
     return R * c
 
 # -------------------------
-# 데이터 로드 (Google Drive 링크)
+# 데이터 로드
 # -------------------------
 @st.cache_data
 def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
@@ -91,6 +91,9 @@ if type_col:
     sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
 else:
     sel_types = None
+
+# 통계 표시 선택
+show_stats = st.sidebar.checkbox("📊 통계 보기", value=False)
 
 # -------------------------
 # 데이터 필터링
@@ -167,32 +170,56 @@ else:
         layers=layers,
         tooltip={
             "html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}",
-            "style":{"color":"black"}  # 검은 글씨
+            "style":{"color":"black"}  # 툴팁 글씨 검정
         }
     )
 
     st.pydeck_chart(deck, use_container_width=True)
 
 # -------------------------
-# 통계
+# 통계 (체크박스 선택 시만)
 # -------------------------
-st.subheader("📊 통계")
-if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
-    by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
-    fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
-    fig.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font_color='black'
-    )
-    st.plotly_chart(fig, use_container_width=True)
+if show_stats:
+    st.subheader("📊 통계")
 
-if type_col and "사고건수" in df.columns:
-    by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
-    fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
-    fig2.update_layout(
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        font_color='black'
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+    # 구별 사고건수 Top 15
+    if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
+        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
+        fig = px.bar(
+            by_dist.head(15),
+            x="사고다발지역시도시군구",
+            y="사고건수",
+            title="구별 사고건수 Top 15",
+            text="사고건수"
+        )
+        fig.update_traces(
+            textposition="outside",
+            textfont_color="black"
+        )
+        fig.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font_color='black'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # 사고유형별 비율
+    if type_col and "사고건수" in df.columns:
+        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+        fig2 = px.pie(
+            by_type,
+            values="사고건수",
+            names=type_col,
+            title="사고유형별 비율"
+        )
+        fig2.update_traces(
+            textinfo="percent+label",
+            textfont_size=14,
+            textfont_color="black"
+        )
+        fig2.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font_color='black'
+        )
+        st.plotly_chart(fig2, use_container_width=True)
