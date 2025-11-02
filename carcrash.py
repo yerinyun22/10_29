@@ -46,14 +46,20 @@ data = load_data("https://drive.google.com/file/d/1c3ULCZImSX4ns8F9cIE2wVsy8Avup
 # -------------------------
 st.sidebar.header("🔎 필터 · 검색")
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
-sel_year_range = st.sidebar.slider("연도 범위 선택", int(data[year_col].min()), int(data[year_col].max()), (int(data[year_col].min()), int(data[year_col].max()))) if year_col else None
+sel_year_range = st.sidebar.slider("연도 범위 선택",
+                                   int(data[year_col].min()), int(data[year_col].max()),
+                                   (int(data[year_col].min()), int(data[year_col].max()))) if year_col else None
 
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-sel_types = st.sidebar.multiselect("사고유형 필터", options=sorted(data[type_col].dropna().unique()) if type_col else [], default=None)
+sel_types = st.sidebar.multiselect("사고유형 필터",
+                                   options=sorted(data[type_col].dropna().unique()) if type_col else [],
+                                   default=None)
 
 possible_cause_cols = [c for c in data.columns if "원인" in c]
 cause_col = possible_cause_cols[0] if possible_cause_cols else None
-sel_causes = st.sidebar.multiselect("사고원인 필터", options=sorted(data[cause_col].dropna().unique()) if cause_col else [], default=None)
+sel_causes = st.sidebar.multiselect("사고원인 필터",
+                                    options=sorted(data[cause_col].dropna().unique()) if cause_col else [],
+                                    default=None)
 
 # -------------------------
 # 데이터 필터링
@@ -82,7 +88,6 @@ df["sev_score"] = df.apply(severity_score, axis=1) if len(df) > 0 else []
 # -------------------------
 # 위험지역 강조 색상/크기
 # -------------------------
-# 심각도 5 이상 → 빨간색, 크기 증가
 def get_risk_color(sev):
     if sev >= 5:
         return [255,0,0,200]  # 완전 빨간색
@@ -93,7 +98,7 @@ def get_risk_color(sev):
 
 def get_risk_radius(sev):
     if sev >= 5:
-        return 120  # 위험지역 크기
+        return 120
     elif sev > 0:
         return 60
     else:
@@ -133,7 +138,7 @@ else:
         auto_highlight=True
     )
 
-    # HeatmapLayer: 심각도 표현 (약간 투명)
+    # HeatmapLayer: 심각도 표현
     heat_layer = pdk.Layer(
         "HeatmapLayer",
         data=df,
@@ -145,13 +150,33 @@ else:
 
     view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
 
+    # tooltip 안전 처리
+    if {"사고지역위치명","사고건수","사상자수"}.issubset(df.columns):
+        tooltip_html = "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}"
+    else:
+        tooltip_html = None
+
     deck = pdk.Deck(
         layers=[image_layer, heat_layer, scatter_layer],
         initial_view_state=view_state,
-        map_style=None,  # BitmapLayer와 충돌 방지
+        map_style=None,
         controller=False,
-        tooltip={"html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}" if "사고지역위치명" in df.columns else "", "style":{"color":"black"}}
+        tooltip={"html": tooltip_html, "style":{"color":"black"}} if tooltip_html else None
     )
 
     st.pydeck_chart(deck, use_container_width=True)
 
+# -------------------------
+# 통계
+# -------------------------
+st.subheader("📊 통계 요약")
+
+if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
+    by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
+    fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
+    st.plotly_chart(fig, use_container_width=True)
+
+if type_col and "사고건수" in df.columns:
+    by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+    fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
+    st.plotly_chart(fig2, use_container_width=True)
