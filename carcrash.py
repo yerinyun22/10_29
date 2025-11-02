@@ -16,7 +16,7 @@ os.environ["MAPBOX_API_KEY"] = "YOUR_MAPBOX_TOKEN"
 st.set_page_config(page_title="사고다발지역 안전지도", layout="wide", page_icon="🛡️")
 
 # -------------------------
-# CSS
+# CSS: 배경 흰색, 글씨 검은색
 # -------------------------
 st.markdown("""
 <style>
@@ -43,7 +43,8 @@ data = load_data("https://drive.google.com/file/d/1c3ULCZImSX4ns8F9cIE2wVsy8Avup
 # -------------------------
 # 사이드바 필터
 # -------------------------
-st.sidebar.header("🔎 필터 · 검색")
+st.sidebar.header("🔎 필터 · 검색 · 안전경로")
+
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 sel_year_range = st.sidebar.slider(
     "연도 범위 선택",
@@ -90,32 +91,24 @@ def severity_score(row):
 
 df["sev_score"] = df.apply(severity_score, axis=1) if len(df) > 0 else []
 
-# -------------------------
-# 위험지역 강조
-# -------------------------
-def get_risk_color(sev):
-    if sev >= 5:
-        return [255, 0, 0, 200]  # 완전 빨간색
-    elif sev > 0:
-        return [255, 140, 0, 150]  # 주황색
+def severity_to_color(s):
+    if s >= 10:
+        return [180, 0, 0, 200]
+    elif s >= 5:
+        return [230, 40, 40, 180]
+    elif s >= 2:
+        return [255, 140, 0, 150]
+    elif s > 0:
+        return [255, 210, 0, 130]
     else:
-        return [150, 150, 150, 80]
+        return [150, 150, 150, 90]
 
-def get_risk_radius(sev):
-    if sev >= 5:
-        return 120
-    elif sev > 0:
-        return 60
-    else:
-        return 30
-
-df["risk_color"] = df["sev_score"].apply(get_risk_color)
-df["risk_radius"] = df["sev_score"].apply(get_risk_radius)
+df["color"] = df["sev_score"].apply(severity_to_color) if len(df) > 0 else []
 
 # -------------------------
 # 지도 시각화
 # -------------------------
-st.title("🛡️ 사고다발지역 안전지도 — 위험지역 강조")
+st.title("🛡️ 사고다발지역 안전지도 — 흰색 배경 + 검은 글씨")
 
 if not {"위도","경도"}.issubset(df.columns):
     st.error("위도/경도 컬럼 필요")
@@ -123,18 +116,18 @@ else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # ScatterplotLayer: 위험지역 강조 + 클릭 시 팝업
+    # ScatterplotLayer: 사고 위치 강조
     scatter_layer = pdk.Layer(
         "ScatterplotLayer",
         data=df,
         get_position=["경도","위도"],
-        get_color="risk_color",
-        get_radius="risk_radius",
+        get_color="color",
+        get_radius=60,
         pickable=True,
         auto_highlight=True
     )
 
-    # HeatmapLayer: 심각도 표현
+    # HeatmapLayer: 사고 집중지역 시각화
     heat_layer = pdk.Layer(
         "HeatmapLayer",
         data=df,
@@ -144,18 +137,18 @@ else:
         radiusPixels=60
     )
 
-    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
+    view_state = pdk.ViewState(
+        latitude=center_lat,
+        longitude=center_lon,
+        zoom=7,
+        pitch=0
+    )
 
-    # tooltip으로 클릭 시 정보 표시
     deck = pdk.Deck(
         layers=[heat_layer, scatter_layer],
         initial_view_state=view_state,
-        map_style="light",
-        tooltip={
-            "html": "<b>{사고지역위치명}</b><br>사고건수: {사고건수}<br>사상자: {사상자수}",
-            "style": {"color": "black"}
-        },
-        controller=True
+        map_style="light",   # 연한 회색 + 도로/건물
+        controller=False      # 이동/확대/축소 막기
     )
 
     st.pydeck_chart(deck, use_container_width=True)
@@ -164,7 +157,6 @@ else:
 # 통계
 # -------------------------
 st.subheader("📊 통계 요약")
-
 if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
     by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
@@ -174,3 +166,5 @@ if type_col and "사고건수" in df.columns:
     by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
     st.plotly_chart(fig2, use_container_width=True)
+
+
