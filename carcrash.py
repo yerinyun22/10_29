@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 스타일: 흰색 배경, 검은 글씨
+# 스타일 적용
 st.markdown("""
 <style>
 body { background-color: white; color: black; }
@@ -22,7 +22,7 @@ body { background-color: white; color: black; }
 """, unsafe_allow_html=True)
 
 # -------------------------
-# Haversine 거리 계산
+# 유틸: Haversine 거리 계산
 # -------------------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -32,8 +32,20 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
 
+def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
+    R = 6371.0
+    lat1r = np.radians(lat1)
+    lon1r = np.radians(lon1)
+    lat2r = np.radians(lat_arr)
+    lon2r = np.radians(lon_arr)
+    dlat = lat2r - lat1r
+    dlon = lon2r - lon1r
+    a = np.sin(dlat / 2)**2 + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c
+
 # -------------------------
-# 데이터 로드
+# 데이터 로드 (Google Drive)
 # -------------------------
 @st.cache_data
 def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
@@ -47,16 +59,16 @@ def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup
 data = load_data()
 
 # -------------------------
-# 체크
+# 기본 체크
 # -------------------------
-has_latlon = {"위도","경도"}.issubset(set(data.columns))
+has_latlon = {"위도", "경도"}.issubset(set(data.columns))
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
 
 # -------------------------
-# 사이드바 필터
+# 사이드바: 필터
 # -------------------------
-st.sidebar.header("🔎 필터 · 검색 ")
+st.sidebar.header("🔎 필터 · 검색 / 안전경로")
 
 if year_col:
     years = sorted(data[year_col].dropna().unique().astype(int))
@@ -110,7 +122,7 @@ df["color"] = df["sev_score"].apply(severity_to_color)
 # 타이틀
 # -------------------------
 st.title("🛡️ 사고다발지역 안전지도")
-st.markdown("사고 데이터 기반 시각화")
+st.markdown("사고 데이터 기반 **히트맵/클러스터** 시각화 및 **안전경로 후보 생성**")
 
 # -------------------------
 # 지도 시각화
@@ -121,40 +133,39 @@ else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # 레이어 설정
-    scatter_layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=df,
-        get_position=["경도","위도"],
-        get_color="color",
-        get_radius=60,
-        pickable=True,
-        auto_highlight=True
-    )
+    layers = [
+        # Heatmap
+        pdk.Layer(
+            "HeatmapLayer",
+            data=df,
+            get_position=["경도","위도"],
+            aggregation="SUM",
+            weight="sev_score",
+            radiusPixels=60
+        ),
+        # Scatterplot
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=df,
+            get_position=["경도","위도"],
+            get_color="color",
+            get_radius=60,
+            pickable=True
+        )
+    ]
 
-    heat_layer = pdk.Layer(
-        "HeatmapLayer",
-        data=df,
-        get_position=["경도","위도"],
-        aggregation="SUM",
-        weight="sev_score",
-        radiusPixels=60
-    )
-
-    layers = [heat_layer, scatter_layer]
-
-    view_state = pdk.ViewState(
-        latitude=center_lat,
-        longitude=center_lon,
-        zoom=7,
-        pitch=0
-    )
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7)
 
     deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=view_state,
         map_style="mapbox://styles/mapbox/light-v9",
-        controller=False  # 이동/확대/축소 막기
+        initial_view_state=view_state,
+        layers=layers,
+        tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수} / 사상자: {사상자수}", "style":{"color":"black"}},
+        dragRotate=False,
+        scrollZoom=False,
+        doubleClickZoom=False,
+        touchZoom=False,
+        touchRotate=False
     )
 
     st.pydeck_chart(deck, use_container_width=True)
