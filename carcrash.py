@@ -168,12 +168,42 @@ if mode == "지도 보기":
 elif mode == "통계 보기":
     st.title("📊 사고 통계 분석")
 
-    if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
-        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
-        fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
+    stat_mode = st.selectbox("보고 싶은 통계 유형 선택", ["시도별 사고건수", "사고유형별 비율", "연도별 추세"])
+    
+    # 1️⃣ 시도별 사고건수
+    if stat_mode == "시도별 사고건수" and "사고다발지역시도시군구" in df.columns:
+        by_city = df.groupby("사고다발지역시도시군구")["사고건수"].sum().reset_index()
+        fig = px.bar(by_city.sort_values("사고건수", ascending=False).head(20),
+                     x="사고다발지역시도시군구", y="사고건수", title="시도별 사고건수 Top 20")
         st.plotly_chart(fig, use_container_width=True)
+        
+        st.subheader("🗺️ 지도에서 시도별 사고 밀도 보기")
+        city_df = df[df["사고다발지역시도시군구"].isin(by_city["사고다발지역시도시군구"].head(20))]
+        center_lat = float(city_df["위도"].mean())
+        center_lon = float(city_df["경도"].mean())
+        city_layer = pdk.Layer(
+            "ScatterplotLayer",
+            data=city_df,
+            get_position=["경도", "위도"],
+            get_color="color",
+            get_radius=70,
+            pickable=True,
+        )
+        st.pydeck_chart(pdk.Deck(map_style="mapbox://styles/mapbox/light-v9",
+                                 initial_view_state=pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6),
+                                 layers=[city_layer]))
 
-    if type_col and "사고건수" in df.columns:
-        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
+    # 2️⃣ 사고유형별 비율
+    elif stat_mode == "사고유형별 비율" and type_col:
+        by_type = df.groupby(type_col)["사고건수"].sum().reset_index()
         fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율")
         st.plotly_chart(fig2, use_container_width=True)
+
+    # 3️⃣ 연도별 추세
+    elif stat_mode == "연도별 추세" and year_col:
+        by_year = df.groupby(year_col)["사고건수"].sum().reset_index()
+        fig3 = px.line(by_year, x=year_col, y="사고건수", title="연도별 사고 추세")
+        st.plotly_chart(fig3, use_container_width=True)
+
+    else:
+        st.warning("선택한 통계 유형에 필요한 데이터가 없습니다.")
