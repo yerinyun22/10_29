@@ -95,11 +95,11 @@ df["sev_score"] = df.apply(severity_score, axis=1) if len(df) > 0 else []
 # -------------------------
 def get_risk_color(sev):
     if sev >= 5:
-        return [255,0,0,200]  # 완전 빨간색
+        return [255, 0, 0, 200]  # 완전 빨간색
     elif sev > 0:
-        return [255,140,0,150]  # 주황색
+        return [255, 140, 0, 150]  # 주황색
     else:
-        return [150,150,150,80]
+        return [150, 150, 150, 80]
 
 def get_risk_radius(sev):
     if sev >= 5:
@@ -155,20 +155,12 @@ else:
 
     view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
 
-    # ✅ tooltip 완전 안전 처리: 컬럼 없으면 아예 제거
-    tooltip = None
-    if {"사고지역위치명","사고건수","사상자수"}.issubset(df.columns):
-        tooltip = {
-            "html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}",
-            "style": {"color": "black"}
-        }
-
+    # ❌ tooltip 완전히 제거 → BitmapLayer와 충돌 없음
     deck = pdk.Deck(
         layers=[image_layer, heat_layer, scatter_layer],
         initial_view_state=view_state,
-        map_style=None,       # BitmapLayer와 충돌 방지
-        controller=False,
-        tooltip=tooltip      # tooltip 없으면 그냥 None
+        map_style=None,
+        controller=False
     )
 
     st.pydeck_chart(deck, use_container_width=True)
