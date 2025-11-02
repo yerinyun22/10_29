@@ -43,18 +43,6 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
 
-def haversine_vectorized(lat1, lon1, lat_arr, lon_arr):
-    R = 6371.0
-    lat1r = np.radians(lat1)
-    lon1r = np.radians(lon1)
-    lat2r = np.radians(lat_arr)
-    lon2r = np.radians(lon_arr)
-    dlat = lat2r - lat1r
-    dlon = lon2r - lon1r
-    a = np.sin(dlat / 2)**2 + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-    return R * c
-
 # -------------------------
 # 데이터 로드
 # -------------------------
@@ -99,7 +87,7 @@ sel_causes = st.sidebar.multiselect(
 )
 
 # -------------------------
-# 데이터 필터링 적용
+# 데이터 필터링
 # -------------------------
 df = data.copy()
 if sel_year_range and year_col:
@@ -140,14 +128,13 @@ df["color"] = df["sev_score"].apply(severity_to_color) if len(df) > 0 else []
 # -------------------------
 st.title("🛡️ 사고다발지역 안전지도 — 커스텀 배경")
 
-has_latlon = {"위도", "경도"}.issubset(set(df.columns))
-if not has_latlon:
+if not {"위도", "경도"}.issubset(df.columns):
     st.error("위도/경도 컬럼이 필요합니다.")
 else:
     center_lat = float(df["위도"].mean())
     center_lon = float(df["경도"].mean())
 
-    # BitmapLayer: 이미지 배경
+    # BitmapLayer: 배경 이미지
     image_layer = pdk.Layer(
         "BitmapLayer",
         data=[{
@@ -158,7 +145,6 @@ else:
         opacity=1.0
     )
 
-    # Heatmap + Scatter
     layers = [
         image_layer,
         pdk.Layer(
@@ -179,7 +165,6 @@ else:
         )
     ]
 
-    # ViewState
     view_state = pdk.ViewState(
         latitude=center_lat,
         longitude=center_lon,
@@ -187,16 +172,16 @@ else:
         pitch=0
     )
 
-    # Deck
+    # Deck: Mapbox URL 사용 → BitmapLayer와 충돌 방지
     deck = pdk.Deck(
-        map_style='light',  # ← 여기가 핵심 수정: None → 'light'
+        map_style="mapbox://styles/mapbox/light-v10",  # 안정적 URL 사용
         initial_view_state=view_state,
         layers=layers,
         tooltip={
-            "html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}", 
+            "html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}" if "사고지역위치명" in df.columns else "",
             "style": {"color": "black"}
         },
-        controller=False  # 이동/확대/축소 불가
+        controller=False
     )
 
     st.pydeck_chart(deck, use_container_width=True)
@@ -205,6 +190,7 @@ else:
 # 통계
 # -------------------------
 st.subheader("📊 통계 요약")
+
 if "사고다발지역시도시군구" in df.columns and "사고건수" in df.columns:
     by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
     fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15")
