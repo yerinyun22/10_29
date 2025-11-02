@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import pydeck as pdk
 import plotly.express as px
-from math import radians, sin, cos, sqrt, atan2
 import os
 
 # -------------------------
@@ -46,20 +45,26 @@ data = load_data("https://drive.google.com/file/d/1c3ULCZImSX4ns8F9cIE2wVsy8Avup
 # -------------------------
 st.sidebar.header("🔎 필터 · 검색")
 year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
-sel_year_range = st.sidebar.slider("연도 범위 선택",
-                                   int(data[year_col].min()), int(data[year_col].max()),
-                                   (int(data[year_col].min()), int(data[year_col].max()))) if year_col else None
+sel_year_range = st.sidebar.slider(
+    "연도 범위 선택",
+    int(data[year_col].min()), int(data[year_col].max()),
+    (int(data[year_col].min()), int(data[year_col].max()))
+) if year_col else None
 
 type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-sel_types = st.sidebar.multiselect("사고유형 필터",
-                                   options=sorted(data[type_col].dropna().unique()) if type_col else [],
-                                   default=None)
+sel_types = st.sidebar.multiselect(
+    "사고유형 필터",
+    options=sorted(data[type_col].dropna().unique()) if type_col else [],
+    default=None
+)
 
 possible_cause_cols = [c for c in data.columns if "원인" in c]
 cause_col = possible_cause_cols[0] if possible_cause_cols else None
-sel_causes = st.sidebar.multiselect("사고원인 필터",
-                                    options=sorted(data[cause_col].dropna().unique()) if cause_col else [],
-                                    default=None)
+sel_causes = st.sidebar.multiselect(
+    "사고원인 필터",
+    options=sorted(data[cause_col].dropna().unique()) if cause_col else [],
+    default=None
+)
 
 # -------------------------
 # 데이터 필터링
@@ -77,16 +82,16 @@ if sel_causes and cause_col:
 # -------------------------
 def severity_score(row):
     score = 0.0
-    score += 10.0 * (row.get("사망자수",0) or 0)
-    score += 3.0 * (row.get("중상자수",0) or 0)
-    score += 1.0 * (row.get("경상자수",0) or 0)
-    score += 0.5 * (row.get("사고건수",0) or 0)
+    score += 10.0 * (row.get("사망자수", 0) or 0)
+    score += 3.0 * (row.get("중상자수", 0) or 0)
+    score += 1.0 * (row.get("경상자수", 0) or 0)
+    score += 0.5 * (row.get("사고건수", 0) or 0)
     return score
 
 df["sev_score"] = df.apply(severity_score, axis=1) if len(df) > 0 else []
 
 # -------------------------
-# 위험지역 강조 색상/크기
+# 위험지역 강조
 # -------------------------
 def get_risk_color(sev):
     if sev >= 5:
@@ -150,18 +155,20 @@ else:
 
     view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=7, pitch=0)
 
-    # tooltip 안전 처리
+    # ✅ tooltip 완전 안전 처리: 컬럼 없으면 아예 제거
+    tooltip = None
     if {"사고지역위치명","사고건수","사상자수"}.issubset(df.columns):
-        tooltip_html = "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}"
-    else:
-        tooltip_html = None
+        tooltip = {
+            "html": "<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자: {사상자수}",
+            "style": {"color": "black"}
+        }
 
     deck = pdk.Deck(
         layers=[image_layer, heat_layer, scatter_layer],
         initial_view_state=view_state,
-        map_style=None,
+        map_style=None,       # BitmapLayer와 충돌 방지
         controller=False,
-        tooltip={"html": tooltip_html, "style":{"color":"black"}} if tooltip_html else None
+        tooltip=tooltip      # tooltip 없으면 그냥 None
     )
 
     st.pydeck_chart(deck, use_container_width=True)
