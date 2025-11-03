@@ -15,31 +15,32 @@ st.set_page_config(
 )
 
 # -------------------------
-# ⚙️ 사용자 설정 섹션
+# ⚙️ 설정 (접이식 Expander)
 # -------------------------
-st.sidebar.markdown("## ⚙️ 설정")
+with st.sidebar.expander("⚙️ 설정 열기 / 닫기"):
+    st.markdown("### 사용자 설정")
 
-# 글씨 크기
-font_size = st.sidebar.slider("글씨 크기 조정", 12, 30, 16)
+    # 글씨 크기
+    font_size = st.slider("글씨 크기 조정", 12, 30, 16)
 
-# 글씨 색상
-font_color = st.sidebar.color_picker("글씨 색상 선택", "#000000")
+    # 글씨 색상
+    font_color = st.color_picker("글씨 색상 선택", "#000000")
 
-# 밝기 설정
-theme = st.sidebar.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
-bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
-text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
+    # 밝기 설정
+    theme = st.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
+    bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
+    text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
 
-# 현재 날짜와 시간
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-st.sidebar.markdown(f"🕒 현재 시각: **{now}**")
+    # 현재 날짜와 시간
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.markdown(f"🕒 현재 시각: **{now}**")
 
-# Q&A 질문하기
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ❓ Q&A 질문")
-user_question = st.sidebar.text_area("궁금한 점을 입력하세요")
-if st.sidebar.button("질문 제출"):
-    st.sidebar.success("질문이 접수되었습니다!")
+    # Q&A 질문
+    st.markdown("---")
+    st.markdown("### ❓ Q&A 질문")
+    user_question = st.text_area("궁금한 점을 입력하세요")
+    if st.button("질문 제출"):
+        st.success("✅ 질문이 접수되었습니다!")
 
 # -------------------------
 # 스타일 적용
@@ -148,10 +149,8 @@ if menu == "지도 보기":
         center_lat = float(df["위도"].mean())
         center_lon = float(df["경도"].mean())
 
-        # **줌 레벨 선택**
         zoom_level = st.slider("지도 확대 수준 선택 (줌 레벨)", 4, 12, 6)
 
-        # **줌에 따라 표시 데이터 필터링**
         if zoom_level <= 6:
             df_plot = df[df["sev_score"] >= 5]
         elif zoom_level <= 9:
@@ -238,4 +237,3 @@ elif menu == "시민 참여":
         choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
         if st.button("참여하기"):
             st.success("✅ 참여 완료!")
-
