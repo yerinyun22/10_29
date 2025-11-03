@@ -1,137 +1,131 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
-import os
+import plotly.express as px
+from math import radians, sin, cos, sqrt, atan2
 
 # -------------------------
-# 페이지 설정
+# 페이지 기본 설정
 # -------------------------
 st.set_page_config(page_title="교통사고 위험지역 시각화", layout="wide")
 
 # -------------------------
-# 데이터 로드 (샘플용)
+# 데이터 불러오기
 # -------------------------
 @st.cache_data
 def load_data():
-    data = pd.DataFrame({
-        '위도': [37.5665, 37.5651, 37.5700],
-        '경도': [126.9780, 126.9900, 126.9750],
-        '사고건수': [5, 3, 8],
-        '지역명': ['시청역', '을지로입구', '광화문']
-    })
-    return data
+    df = pd.read_csv("accident_data.csv")  # 교통사고 데이터 파일 경로
+    return df
 
 data = load_data()
 
 # -------------------------
-# QnA 저장용 CSV 파일
+# 지도 표시 함수
 # -------------------------
-qna_file = "qna_data.csv"
+def show_map():
+    st.subheader("🚗 교통사고 위험지역 지도")
 
-if not os.path.exists(qna_file):
-    qna_df = pd.DataFrame(columns=["질문", "답변"])
-    qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
-else:
-    qna_df = pd.read_csv(qna_file)
+    # 지도 중심좌표 계산
+    center_lat = data["위도"].mean()
+    center_lon = data["경도"].mean()
+
+    # Pydeck 지도 설정
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=data,
+        get_position=["경도", "위도"],
+        get_color=[255, 0, 0, 150],
+        get_radius=80,
+        pickable=True,
+    )
+
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=11)
+    deck = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip={"text": "사고 유형: {사고유형}\n사상자수: {사상자수}"}
+    )
+
+    st.pydeck_chart(deck)
+
+    # 클릭 시 관련 데이터 표시
+    st.info("지도를 클릭하면 사고 관련 정보가 표시됩니다.")
+    st.dataframe(data.head(10))
+
+# -------------------------
+# 데이터 보기 함수
+# -------------------------
+def show_data():
+    st.subheader("📊 교통사고 데이터 보기")
+    with st.expander("데이터 미리보기"):
+        st.dataframe(data.head(20))
+
+    # 간단한 통계 시각화
+    if "사고유형" in data.columns:
+        fig = px.histogram(data, x="사고유형", title="사고 유형별 빈도")
+        st.plotly_chart(fig)
+
+# -------------------------
+# QnA 보기 (새 메뉴)
+# -------------------------
+def show_qna():
+    st.subheader("💬 QnA 게시판")
+
+    if "qna" not in st.session_state:
+        st.session_state.qna = []
+
+    # 기존 질문 리스트
+    if st.session_state.qna:
+        for i, (q, a) in enumerate(st.session_state.qna):
+            with st.expander(f"Q{i+1}: {q}"):
+                if a:
+                    st.write(f"**답변:** {a}")
+                else:
+                    new_answer = st.text_area(f"답변 입력 (Q{i+1})", key=f"ans_{i}")
+                    if st.button(f"답변 등록 (Q{i+1})"):
+                        st.session_state.qna[i] = (q, new_answer)
+                        st.success("✅ 답변이 등록되었습니다.")
+                        st.experimental_rerun()
+    else:
+        st.info("등록된 질문이 없습니다.")
+
+    # 새 질문 등록
+    st.markdown("---")
+    new_q = st.text_input("새 질문 등록")
+    if st.button("질문 추가"):
+        if new_q:
+            st.session_state.qna.append((new_q, None))
+            st.success("✅ 질문이 추가되었습니다.")
+            st.experimental_rerun()
+        else:
+            st.warning("질문 내용을 입력해주세요.")
+
+# -------------------------
+# 설정 페이지
+# -------------------------
+def show_settings():
+    st.subheader("⚙️ 설정")
+    st.text("이곳에서 지도 및 데이터 관련 기본 설정을 변경할 수 있습니다.")
+    mapbox_api = st.text_input("Mapbox API Key 입력", type="password")
+    st.checkbox("지도 마커 강조", value=True)
+    st.checkbox("데이터 자동 새로고침", value=False)
 
 # -------------------------
 # 사이드바 메뉴
 # -------------------------
-menu = st.sidebar.selectbox("메뉴 선택", ["지도 보기", "QnA 보기", "설정"])
+menu = st.sidebar.radio(
+    "메뉴 선택",
+    ["지도 보기", "데이터 보기", "QnA 보기", "설정"]
+)
 
-# ============================================================
-# 1️⃣ 지도 보기
-# ============================================================
+# -------------------------
+# 메뉴별 페이지 표시
+# -------------------------
 if menu == "지도 보기":
-    st.title("🚦 교통사고 위험지역 시각화")
-
-    st.write("지도에서 사고 다발 지역을 확인하고, 클릭하면 세부 정보를 볼 수 있습니다.")
-
-    layer = pdk.Layer(
-        'ScatterplotLayer',
-        data=data,
-        get_position='[경도, 위도]',
-        get_color='[255, 0, 0, 160]',
-        get_radius='사고건수 * 50',
-        pickable=True
-    )
-
-    view_state = pdk.ViewState(
-        latitude=37.5665,
-        longitude=126.9780,
-        zoom=13,
-        pitch=0
-    )
-
-    r = pdk.Deck(
-        layers=[layer],
-        initial_view_state=view_state,
-        tooltip={
-            "html": "<b>지역명:</b> {지역명}<br/><b>사고건수:</b> {사고건수}",
-            "style": {"color": "white"}
-        }
-    )
-
-    st.pydeck_chart(r)
-
-# ============================================================
-# 2️⃣ QnA 보기
-# ============================================================
+    show_map()
+elif menu == "데이터 보기":
+    show_data()
 elif menu == "QnA 보기":
-    st.title("💬 QnA 게시판")
-
-    tab1, tab2 = st.tabs(["📄 질문 목록", "✏️ 새 질문 등록"])
-
-    # -------------------
-    # 질문 목록
-    # -------------------
-    with tab1:
-        st.subheader("📋 등록된 질문들")
-        qna_df = pd.read_csv(qna_file)
-
-        if len(qna_df) == 0:
-            st.info("등록된 질문이 없습니다.")
-        else:
-            for i, row in qna_df.iterrows():
-                with st.expander(f"Q{i+1}. {row['질문']}"):
-                    st.write(f"**답변:** {row['답변'] if pd.notna(row['답변']) and row['답변'].strip() != '' else '아직 답변이 없습니다.'}")
-
-                    new_answer = st.text_area(f"답변 입력 (Q{i+1})", value=row['답변'] if pd.notna(row['답변']) else "")
-                    if st.button(f"💾 답변 저장 (Q{i+1})"):
-                        qna_df.at[i, '답변'] = new_answer
-                        qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
-                        st.success("답변이 저장되었습니다.")
-                        st.rerun()
-
-    # -------------------
-    # 새 질문 등록
-    # -------------------
-    with tab2:
-        st.subheader("✏️ 새로운 질문 등록")
-
-        new_question = st.text_area("질문 내용을 입력하세요")
-
-        if st.button("📤 질문 등록"):
-            if new_question.strip() == "":
-                st.warning("질문 내용을 입력해야 합니다.")
-            else:
-                new_row = pd.DataFrame([[new_question, ""]], columns=["질문", "답변"])
-                qna_df = pd.concat([qna_df, new_row], ignore_index=True)
-                qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
-                st.success("질문이 등록되었습니다.")
-                st.rerun()
-
-# ============================================================
-# 3️⃣ 설정
-# ============================================================
+    show_qna()
 elif menu == "설정":
-    st.title("⚙️ 지도 설정")
-
-    map_style = st.selectbox(
-        "지도 스타일 선택",
-        ["light", "dark", "streets", "satellite"]
-    )
-
-    st.write(f"현재 선택된 지도 스타일: `{map_style}`")
-
-    st.info("이 기능은 이후 지도 표시 시 적용될 예정입니다.")
+    show_settings()
