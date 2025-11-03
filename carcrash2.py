@@ -1,75 +1,132 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
-from datetime import datetime
+from math import radians, sin, cos, sqrt, atan2
 
-# ---------------------------
-# 1️⃣ Mapbox 토큰 불러오기
-# ---------------------------
-MAPBOX_API_KEY = st.secrets["MAPBOX_API_KEY"]
+st.set_page_config(page_title="🛡️ 대한민국 안전지도 (MapLibre)", layout="wide")
 
-# ---------------------------
-# 2️⃣ 데이터 불러오기 (또는 예시 데이터)
-# ---------------------------
-try:
-    data = pd.read_csv("data.csv")
-except FileNotFoundError:
-    st.warning("⚠️ data.csv 파일이 없어 예시 데이터를 사용합니다.")
-    data = pd.DataFrame({
-        "lat": [37.5665, 37.5651, 37.5643],
-        "lon": [126.9780, 126.9821, 126.9750],
-        "사고건수": [3, 5, 2],
-        "발생일시": ["2025-01-01 08:00", "2025-01-01 22:00", "2025-01-02 15:00"]
-    })
+# -------------------------
+# 데이터 로드
+# -------------------------
+@st.cache_data
+def load_data(path="data.csv"):
+    try:
+        df = pd.read_csv(path)
+    except FileNotFoundError:
+        st.warning("⚠️ data.csv 파일이 없어 예시 데이터를 사용합니다.")
+        df = pd.DataFrame({
+            "위도": [37.5665, 37.5651, 37.5643],
+            "경도": [126.9780, 126.9821, 126.9750],
+            "사망자수": [0, 1, 0],
+            "중상자수": [1, 2, 1],
+            "경상자수": [2, 1, 1],
+            "사고건수": [3, 5, 2],
+            "사고지역위치명": ["시청근처","광화문","종로3가"]
+        })
+    df.columns = [c.strip() for c in df.columns]
+    return df
 
-# 🔹 기존 데이터 처리 코드 추가 위치
-# 예: 시간대별 필터, 구 선택, 사고유형 분석 등
-# ----------------------------------------------------------
-# 아래 예시는 기존 코드 일부 예시 구조 (예린씨 코드에 맞게 수정)
-if "발생일시" in data.columns:
-    data["발생일시"] = pd.to_datetime(data["발생일시"])
-    selected_hour = st.slider("시간대 선택", 0, 23, 12)
-    data = data[data["발생일시"].dt.hour == selected_hour]
-# ----------------------------------------------------------
+data = load_data()
 
-# ---------------------------
-# 3️⃣ 지도 스타일 및 위치 설정
-# ---------------------------
-MAPBOX_STYLE = "mapbox://styles/mapbox/light-v11"  # 연한 회색 도로지도
+# -------------------------
+# 심각도 점수 계산 (예전 로직 통합)
+# -------------------------
+def severity_score(row):
+    score = 0
+    # 안전하게 키 존재 확인
+    if "사망자수" in row and pd.notna(row["사망자수"]):
+        score += 10 * int(row["사망자수"] or 0)
+    if "중상자수" in row and pd.notna(row["중상자수"]):
+        score += 3 * int(row["중상자수"] or 0)
+    if "경상자수" in row and pd.notna(row["경상자수"]):
+        score += 1 * int(row["경상자수"] or 0)
+    if "사고건수" in row and pd.notna(row["사고건수"]):
+        # 사고건수가 소수일 가능성 대비 안전 처리
+        try:
+            score += 0.5 * float(row["사고건수"] or 0)
+        except:
+            pass
+    return score
 
-view_state = pdk.ViewState(
-    latitude=data["lat"].mean(),
-    longitude=data["lon"].mean(),
-    zoom=13,
-    pitch=0
-)
+data["sev_score"] = data.apply(severity_score, axis=1)
 
-# ---------------------------
-# 4️⃣ 시각화 레이어
-# ---------------------------
-layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=data,
-    get_position='[lon, lat]',
-    get_color='[255, 0, 0, 160]',  # 반투명 빨간색 점
-    get_radius=60,
-    pickable=True
-)
+def severity_to_color(s):
+    if s >= 10: return [255, 0, 0, 230]
+    elif s >= 5: return [255, 80, 80, 200]
+    elif s >= 2: return [255, 150, 150, 170]
+    else: return [255, 200, 200, 140]
 
-# ---------------------------
-# 5️⃣ 지도 만들기 (이동/확대 제한)
-# ---------------------------
-deck = pdk.Deck(
-    map_style=MAPBOX_STYLE,
-    mapbox_key=MAPBOX_API_KEY,
-    initial_view_state=view_state,
-    layers=[layer],
-    tooltip={"text": "사고건수: {사고건수}건"},
-    interactive=False  # 확대/이동 불가능하게
-)
+data["color"] = data["sev_score"].apply(severity_to_color)
 
-# ---------------------------
-# 6️⃣ Streamlit에 표시
-# ---------------------------
-st.title("🚗 교통사고 위치 시각화 지도")
-st.pydeck_chart(deck)
+# -------------------------
+# 사이드바: 필터 예시 (연도/유형 등 기존 로직 여기에 추가)
+# -------------------------
+st.sidebar.title("필터")
+# (데이터에 연도/유형 컬럼이 있으면 여기에서 필터 UI 추가)
+
+# -------------------------
+# 지도 준비 (MapLibre + OSM 사용)
+# -------------------------
+if not {"위도","경도"}.issubset(data.columns):
+    st.error("위도와 경도 컬럼이 필요합니다. 컬럼명이 '위도' '경도'인지 확인하세요.")
+else:
+    center_lat = float(data["위도"].mean())
+    center_lon = float(data["경도"].mean())
+
+    # 뷰 상태
+    view_state = pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=11, pitch=0)
+
+    layers = [
+        pdk.Layer(
+            "HeatmapLayer",
+            data=data,
+            get_position=["경도","위도"],
+            aggregation="SUM",
+            weight="sev_score",
+            radiusPixels=60
+        ),
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=data,
+            get_position=["경도","위도"],
+            get_color="color",
+            get_radius=70,
+            pickable=True
+        )
+    ]
+
+    deck = pdk.Deck(
+        map_provider=None,    # mapbox 비활성화
+        map_style=None,
+        initial_view_state=view_state,
+        layers=layers,
+        tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자수: {사망자수}",
+                 "style":{"color":"white"}},
+        # interactive=True 로 놔도 되지만, 필요하면 False로 고정 가능
+    )
+
+    # deck.to_html에 MapLibre (maplibre-gl) 스크립트를 추가.
+    # 아래 스크립트 중 window.mapboxgl = window.maplibregl; 가 핵심 — deck.gl이 mapboxgl을 참조하므로 maplibregl을 대신 지정.
+    extra_head = """
+    <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet"/>
+    <script>
+      // deck.gl 내부가 mapboxgl을 참조하므로 maplibre를 mapboxgl 변수로 할당
+      window.mapboxgl = window.maplibregl;
+    </script>
+    <style>
+      .mapboxgl-ctrl-attrib { font-size: 11px; }
+    </style>
+    """
+
+    html = deck.to_html(as_string=True, mapbox_key=None, extra_html_head=extra_head)
+    st.components.v1.html(html, height=720)
+
+    # OSM 저작권/출처 표기 (필수 아님, 권장)
+    st.markdown("<small>데이터: OpenStreetMap contributors — 지도 타일: OSM</small>", unsafe_allow_html=True)
+
+# -------------------------
+# 통계 보기(간단)
+# -------------------------
+st.sidebar.markdown("---")
+st.sidebar.write("데이터 건수:", len(data))
