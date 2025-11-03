@@ -3,6 +3,7 @@ import pandas as pd
 import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
+from datetime import datetime
 
 # -------------------------
 # 페이지 설정
@@ -14,20 +15,49 @@ st.set_page_config(
 )
 
 # -------------------------
-# 흰 배경 + 검은 글씨 스타일
+# ⚙️ 사용자 설정 섹션
 # -------------------------
-st.markdown("""
+st.sidebar.markdown("## ⚙️ 설정")
+
+# 글씨 크기
+font_size = st.sidebar.slider("글씨 크기 조정", 12, 30, 16)
+
+# 글씨 색상
+font_color = st.sidebar.color_picker("글씨 색상 선택", "#000000")
+
+# 밝기 설정
+theme = st.sidebar.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
+bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
+text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
+
+# 현재 날짜와 시간
+now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+st.sidebar.markdown(f"🕒 현재 시각: **{now}**")
+
+# Q&A 질문하기
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ❓ Q&A 질문")
+user_question = st.sidebar.text_area("궁금한 점을 입력하세요")
+if st.sidebar.button("질문 제출"):
+    st.sidebar.success("질문이 접수되었습니다!")
+
+# -------------------------
+# 스타일 적용
+# -------------------------
+st.markdown(f"""
 <style>
-body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {
-    background-color: white !important;
-    color: black !important;
-}
-[data-testid="stSidebar"] {
-    background-color: #f9f9f9 !important;
-}
-h1, h2, h3, h4, h5, h6, p, label, div {
-    color: black !important;
-}
+body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
+    background-color: {bg_color} !important;
+    color: {text_color} !important;
+    font-size: {font_size}px !important;
+}}
+h1, h2, h3, h4, h5, h6, p, label, div {{
+    color: {text_color} !important;
+    font-size: {font_size}px !important;
+}}
+[data-testid="stSidebar"] {{
+    background-color: {'#f9f9f9' if theme == '밝음 모드' else '#2e2e2e'} !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -149,7 +179,7 @@ if menu == "지도 보기":
         ]
 
         deck = pdk.Deck(
-            map_style="mapbox://styles/mapbox/light-v9",
+            map_style="mapbox://styles/mapbox/light-v9" if theme == "밝음 모드" else "mapbox://styles/mapbox/dark-v9",
             initial_view_state=pdk.ViewState(
                 latitude=center_lat, longitude=center_lon, zoom=zoom_level
             ),
@@ -208,3 +238,4 @@ elif menu == "시민 참여":
         choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
         if st.button("참여하기"):
             st.success("✅ 참여 완료!")
+
