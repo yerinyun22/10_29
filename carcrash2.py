@@ -32,10 +32,6 @@ with st.sidebar.expander("⚙️ 설정 열기 / 닫기"):
     bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
     text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
 
-    # 현재 날짜와 시간
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.markdown(f"🕒 현재 시각: **{now}**")
-
     # Q&A 질문
     st.markdown("---")
     st.markdown("### ❓ Q&A 질문")
