@@ -3,6 +3,9 @@ import pandas as pd
 import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
+from datetime import datetime
+import re
+import time
 
 # -------------------------
 # 페이지 설정
@@ -14,20 +17,50 @@ st.set_page_config(
 )
 
 # -------------------------
-# 흰 배경 + 검은 글씨 스타일
+# ⚙️ 설정 (접이식 Expander)
 # -------------------------
-st.markdown("""
+with st.sidebar.expander("⚙️ 설정 열기 / 닫기"):
+    st.markdown("### 사용자 설정")
+
+    # 글씨 크기
+    font_size = st.slider("글씨 크기 조정", 12, 30, 16)
+
+    # 글씨 색상
+    font_color = st.color_picker("글씨 색상 선택", "#000000")
+
+    # 밝기 설정
+    theme = st.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
+    bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
+    text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
+
+    # 현재 날짜와 시간 실시간 표시
+    st.markdown("🕒 현재 시각:")
+    time_placeholder = st.empty()
+
+    # Q&A 질문
+    st.markdown("---")
+    st.markdown("### ❓ Q&A 질문")
+    user_question = st.text_area("궁금한 점을 입력하세요")
+    if st.button("질문 제출"):
+        st.success("✅ 질문이 접수되었습니다!")
+
+# -------------------------
+# 스타일 적용
+# -------------------------
+st.markdown(f"""
 <style>
-body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {
-    background-color: white !important;
-    color: black !important;
-}
-[data-testid="stSidebar"] {
-    background-color: #f9f9f9 !important;
-}
-h1, h2, h3, h4, h5, h6, p, label, div {
-    color: black !important;
-}
+body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
+    background-color: {bg_color} !important;
+    color: {text_color} !important;
+    font-size: {font_size}px !important;
+}}
+h1, h2, h3, h4, h5, h6, p, label, div {{
+    color: {text_color} !important;
+    font-size: {font_size}px !important;
+}}
+[data-testid="stSidebar"] {{
+    background-color: {'#f9f9f9' if theme == '밝음 모드' else '#2e2e2e'} !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,7 +129,6 @@ if menu == "지도 보기":
     if not has_latlon:
         st.error("⚠️ 위도와 경도 컬럼이 필요합니다.")
     else:
-        # 심각도 계산
         def severity_score(row):
             score = 0
             if "사망자수" in row: score += 10 * (row["사망자수"] or 0)
@@ -107,7 +139,6 @@ if menu == "지도 보기":
 
         df["sev_score"] = df.apply(severity_score, axis=1)
 
-        # 색상
         def severity_to_color(s):
             if s >= 10: return [255, 0, 0, 230]
             elif s >= 5: return [255, 80, 80, 200]
@@ -118,10 +149,19 @@ if menu == "지도 보기":
         center_lat = float(df["위도"].mean())
         center_lon = float(df["경도"].mean())
 
+        zoom_level = st.slider("지도 확대 수준 선택 (줌 레벨)", 4, 12, 6)
+
+        if zoom_level <= 6:
+            df_plot = df[df["sev_score"] >= 5]
+        elif zoom_level <= 9:
+            df_plot = df[df["sev_score"] >= 2]
+        else:
+            df_plot = df.copy()
+
         layers = [
             pdk.Layer(
                 "HeatmapLayer",
-                data=df,
+                data=df_plot,
                 get_position=["경도","위도"],
                 aggregation="SUM",
                 weight="sev_score",
@@ -129,7 +169,7 @@ if menu == "지도 보기":
             ),
             pdk.Layer(
                 "ScatterplotLayer",
-                data=df,
+                data=df_plot,
                 get_position=["경도","위도"],
                 get_color="color",
                 get_radius=70,
@@ -138,8 +178,10 @@ if menu == "지도 보기":
         ]
 
         deck = pdk.Deck(
-            map_style="mapbox://styles/mapbox/light-v9",
-            initial_view_state=pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6),
+            map_style="mapbox://styles/mapbox/light-v9" if theme == "밝음 모드" else "mapbox://styles/mapbox/dark-v9",
+            initial_view_state=pdk.ViewState(
+                latitude=center_lat, longitude=center_lon, zoom=zoom_level
+            ),
             layers=layers,
             tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자수: {사상자수}",
                      "style":{"color":"white"}}
@@ -150,48 +192,47 @@ if menu == "지도 보기":
         st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.")
 
 # -------------------------
-# 통계 보기
+# 통계 보기 (지역명 숫자 제거 및 합산)
 # -------------------------
 elif menu == "통계 보기":
     st.title("📊 사고 통계 분석")
-    stat_type = st.selectbox("보고 싶은 통계 유형 선택", ["구별 사고건수", "사고유형별 비율"])
-    
-    if stat_type == "구별 사고건수" and "사고다발지역시도시군구" in df.columns:
-        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
-        fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15",
-                     color_discrete_sequence=["crimson"])
-        st.plotly_chart(fig, use_container_width=True)
-    
-    elif stat_type == "사고유형별 비율" and type_col:
-        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
-        fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율",
-                      color_discrete_sequence=px.colors.sequential.Reds)
-        st.plotly_chart(fig2, use_container_width=True)
 
-# -------------------------
-# 시민 참여
-# -------------------------
-elif menu == "시민 참여":
-    st.title("🙋 시민 참여 공간")
-    tab1, tab2, tab3 = st.tabs(["🚨 위험 구역 제보", "🧱 개선 요청 게시판", "🚸 교통안전 캠페인 참여"])
-    
-    with tab1:
-        st.subheader("🚨 위험 구역 제보")
-        region = st.text_input("📍 위치/지역명")
-        issue_type = st.selectbox("🚧 문제 유형", ["신호등 고장","가로등 부족","횡단보도 없음","도로 파손","기타"])
-        detail = st.text_area("📝 상세 설명")
-        if st.button("제보 제출"):
-            st.success("✅ 제보가 접수되었습니다.")
+    # 사고 발생 연도 선택
+    if year_col:
+        year_list = sorted(df[year_col].dropna().unique().astype(int))
+        selected_year = st.selectbox("사고 발생 연도 선택", year_list)
+    else:
+        selected_year = None
 
-    with tab2:
-        st.subheader("🧱 개선 요청 게시판")
-        title = st.text_input("제목")
-        content = st.text_area("내용")
-        if st.button("요청 등록"):
-            st.success("✅ 요청이 등록되었습니다.")
+    # 사고 발생 지역 컬럼 탐색
+    region_col = None
+    for col in ["사고다발지역시도시군구", "시군구", "지역명", "사고지역위치명"]:
+        if col in df.columns:
+            region_col = col
+            break
 
-    with tab3:
-        st.subheader("🚸 교통안전 캠페인 참여")
-        choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
-        if st.button("참여하기"):
-            st.success(f"🎉 '{choice}' 캠페인에 참여해주셔서 감사합니다!")
+    if region_col:
+        # 숫자 제거하여 동일 지역 통합
+        df["region_clean"] = df[region_col].apply(lambda x: re.sub(r"\d+$", "", str(x)).strip())
+        regions = sorted(df["region_clean"].dropna().unique())
+        selected_region = st.selectbox("사고 발생 지역 선택", regions)
+    else:
+        selected_region = None
+
+    # 선택 조건으로 필터링
+    filtered = df.copy()
+    if selected_year and year_col:
+        filtered = filtered[filtered[year_col] == selected_year]
+    if selected_region and region_col:
+        filtered = filtered[filtered["region_clean"] == selected_region]
+
+    # 동일 지역 합산
+    if not filtered.empty:
+        st.subheader(f"📍 {selected_region} 지역 ({selected_year}년) 사고 통계")
+        total_accidents = int(filtered["사고건수"].sum()) if "사고건수" in filtered.columns else len(filtered)
+        fatalities = int(filtered["사망자수"].sum()) if "사망자수" in filtered.columns else 0
+        injuries = int(filtered["사상자수"].sum()) if "사상자수" in filtered.columns else 0
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🚗 사고 건수", f"{total_accidents:,}건")
+       
