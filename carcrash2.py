@@ -4,6 +4,7 @@ import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime
+import re
 
 # -------------------------
 # 페이지 설정
@@ -190,7 +191,7 @@ if menu == "지도 보기":
         st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.")
 
 # -------------------------
-# 통계 보기 (중복 지역 제거)
+# 통계 보기 (지역명 통합 + 총합)
 # -------------------------
 elif menu == "통계 보기":
     st.title("📊 사고 통계 분석")
@@ -210,6 +211,8 @@ elif menu == "통계 보기":
             break
 
     if region_col:
+        # 숫자나 불필요한 문자 제거, 동일 지역 합산
+        df[region_col] = df[region_col].apply(lambda x: re.sub(r'\d+$','', str(x)).strip())
         regions = sorted(df[region_col].dropna().unique())
         selected_region = st.selectbox("사고 발생 지역 선택", regions)
     else:
@@ -222,8 +225,18 @@ elif menu == "통계 보기":
     if selected_region and region_col:
         filtered = filtered[filtered[region_col] == selected_region]
 
-    # 중복 지역 제거
-    filtered_unique = filtered.drop_duplicates(subset=[region_col]) if region_col else filtered
+    # 지역별 총합 계산
+    if region_col:
+        agg_cols = []
+        if "사고건수" in filtered.columns:
+            agg_cols.append("사고건수")
+        if "사망자수" in filtered.columns:
+            agg_cols.append("사망자수")
+        if "사상자수" in filtered.columns:
+            agg_cols.append("사상자수")
+        filtered_unique = filtered.groupby(region_col)[agg_cols].sum().reset_index()
+    else:
+        filtered_unique = filtered
 
     # 결과 표시
     if not filtered_unique.empty:
@@ -259,18 +272,4 @@ elif menu == "시민 참여":
         issue_type = st.selectbox("🚧 문제 유형", ["신호등 고장","가로등 부족","횡단보도 없음","도로 파손","기타"])
         detail = st.text_area("📝 상세 설명")
         if st.button("제보 제출"):
-            st.success("✅ 제보가 접수되었습니다.")
-
-    with tab2:
-        st.subheader("🧱 개선 요청 게시판")
-        title = st.text_input("제목")
-        content = st.text_area("내용")
-        if st.button("요청 등록"):
-            st.success("✅ 요청이 등록되었습니다.")
-
-    with tab3:
-        st.subheader("🚸 교통안전 캠페인 참여")
-        choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
-        if st.button("참여하기"):
-            st.success("✅ 참여 완료!")
-
+            st.success("
