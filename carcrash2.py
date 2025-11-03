@@ -4,7 +4,7 @@ import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime
-import re
+import re  # 지역명 정규식용
 
 # -------------------------
 # 페이지 설정
@@ -191,7 +191,7 @@ if menu == "지도 보기":
         st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.")
 
 # -------------------------
-# 통계 보기 (지역명 통합 + 총합)
+# 통계 보기 (지역명 숫자 제거 및 합산)
 # -------------------------
 elif menu == "통계 보기":
     st.title("📊 사고 통계 분석")
@@ -211,9 +211,9 @@ elif menu == "통계 보기":
             break
 
     if region_col:
-        # 숫자나 불필요한 문자 제거, 동일 지역 합산
-        df[region_col] = df[region_col].apply(lambda x: re.sub(r'\d+$','', str(x)).strip())
-        regions = sorted(df[region_col].dropna().unique())
+        # 숫자 제거하여 동일 지역 통합
+        df["region_clean"] = df[region_col].apply(lambda x: re.sub(r"\d+$", "", str(x)).strip())
+        regions = sorted(df["region_clean"].dropna().unique())
         selected_region = st.selectbox("사고 발생 지역 선택", regions)
     else:
         selected_region = None
@@ -223,36 +223,22 @@ elif menu == "통계 보기":
     if selected_year and year_col:
         filtered = filtered[filtered[year_col] == selected_year]
     if selected_region and region_col:
-        filtered = filtered[filtered[region_col] == selected_region]
+        filtered = filtered[filtered["region_clean"] == selected_region]
 
-    # 지역별 총합 계산
-    if region_col:
-        agg_cols = []
-        if "사고건수" in filtered.columns:
-            agg_cols.append("사고건수")
-        if "사망자수" in filtered.columns:
-            agg_cols.append("사망자수")
-        if "사상자수" in filtered.columns:
-            agg_cols.append("사상자수")
-        filtered_unique = filtered.groupby(region_col)[agg_cols].sum().reset_index()
-    else:
-        filtered_unique = filtered
-
-    # 결과 표시
-    if not filtered_unique.empty:
+    # 동일 지역 합산
+    if not filtered.empty:
         st.subheader(f"📍 {selected_region} 지역 ({selected_year}년) 사고 통계")
-
-        total_accidents = int(filtered_unique["사고건수"].sum()) if "사고건수" in filtered_unique.columns else len(filtered_unique)
-        fatalities = int(filtered_unique["사망자수"].sum()) if "사망자수" in filtered_unique.columns else 0
-        injuries = int(filtered_unique["사상자수"].sum()) if "사상자수" in filtered_unique.columns else 0
+        total_accidents = int(filtered["사고건수"].sum()) if "사고건수" in filtered.columns else len(filtered)
+        fatalities = int(filtered["사망자수"].sum()) if "사망자수" in filtered.columns else 0
+        injuries = int(filtered["사상자수"].sum()) if "사상자수" in filtered.columns else 0
 
         col1, col2, col3 = st.columns(3)
         col1.metric("🚗 사고 건수", f"{total_accidents:,}건")
         col2.metric("☠️ 사망자수", f"{fatalities:,}명")
         col3.metric("🤕 부상자수", f"{injuries:,}명")
 
-        if type_col and type_col in filtered_unique.columns:
-            by_type = filtered_unique.groupby(type_col)["사고건수"].sum().reset_index()
+        if type_col and type_col in filtered.columns:
+            by_type = filtered.groupby(type_col)["사고건수"].sum().reset_index()
             fig = px.bar(by_type, x=type_col, y="사고건수", color=type_col,
                          title=f"{selected_region}({selected_year}) 사고 유형별 현황")
             st.plotly_chart(fig, use_container_width=True)
@@ -272,4 +258,18 @@ elif menu == "시민 참여":
         issue_type = st.selectbox("🚧 문제 유형", ["신호등 고장","가로등 부족","횡단보도 없음","도로 파손","기타"])
         detail = st.text_area("📝 상세 설명")
         if st.button("제보 제출"):
-            st.success("
+            st.success("✅ 제보가 접수되었습니다.")
+
+    with tab2:
+        st.subheader("🧱 개선 요청 게시판")
+        title = st.text_input("제목")
+        content = st.text_area("내용")
+        if st.button("요청 등록"):
+            st.success("✅ 요청이 등록되었습니다.")
+
+    with tab3:
+        st.subheader("🚸 교통안전 캠페인 참여")
+        choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
+        if st.button("참여하기"):
+            st.success("✅ 참여 완료!")
+
