@@ -4,8 +4,7 @@ import pydeck as pdk
 import plotly.express as px
 from math import radians, sin, cos, sqrt, atan2
 from datetime import datetime
-import re
-import time
+import re  # 지역명 정규식용
 
 # -------------------------
 # 페이지 설정
@@ -26,16 +25,16 @@ with st.sidebar.expander("⚙️ 설정 열기 / 닫기"):
     font_size = st.slider("글씨 크기 조정", 12, 30, 16)
 
     # 글씨 색상
-    font_color = st.color_picker("글씨 색상 선택", "#000000")
+    font_color = st.color_picker("글씨 색상 선택", "#111111")
+
+    # 강조 색상
+    accent_color = st.color_picker("강조 색상 선택", "#FF4B4B")
 
     # 밝기 설정
     theme = st.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
-    bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
-    text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
-
-    # 현재 날짜와 시간 실시간 표시
-    st.markdown("🕒 현재 시각:")
-    time_placeholder = st.empty()
+    bg_color = "#F8F9FA" if theme == "밝음 모드" else "#1B1B1B"
+    sidebar_color = "#FFFFFF" if theme == "밝음 모드" else "#2B2B2B"
+    text_color = font_color if theme == "밝음 모드" else "#E0E0E0"
 
     # Q&A 질문
     st.markdown("---")
@@ -52,6 +51,7 @@ st.markdown(f"""
 body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
     background-color: {bg_color} !important;
     color: {text_color} !important;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
     font-size: {font_size}px !important;
 }}
 h1, h2, h3, h4, h5, h6, p, label, div {{
@@ -59,7 +59,27 @@ h1, h2, h3, h4, h5, h6, p, label, div {{
     font-size: {font_size}px !important;
 }}
 [data-testid="stSidebar"] {{
-    background-color: {'#f9f9f9' if theme == '밝음 모드' else '#2e2e2e'} !important;
+    background-color: {sidebar_color} !important;
+    border-right: 2px solid {accent_color};
+}}
+.stButton>button {{
+    background-color: {accent_color} !important;
+    color: white !important;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 0.5em 1em;
+}}
+.stSlider>div>div>div>div {{
+    background: linear-gradient(90deg, {accent_color}, #FFC107);
+}}
+.stSelectbox>div>div>div>div {{
+    border: 2px solid {accent_color} !important;
+    border-radius: 8px;
+}}
+.stTextInput>div>input {{
+    border: 2px solid {accent_color} !important;
+    border-radius: 8px;
+    padding: 0.4em;
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -140,10 +160,10 @@ if menu == "지도 보기":
         df["sev_score"] = df.apply(severity_score, axis=1)
 
         def severity_to_color(s):
-            if s >= 10: return [255, 0, 0, 230]
-            elif s >= 5: return [255, 80, 80, 200]
-            elif s >= 2: return [255, 150, 150, 170]
-            else: return [255, 200, 200, 140]
+            if s >= 10: return [255, 50, 50, 230]
+            elif s >= 5: return [255, 100, 100, 200]
+            elif s >= 2: return [255, 180, 180, 170]
+            else: return [255, 220, 220, 140]
 
         df["color"] = df["sev_score"].apply(severity_to_color)
         center_lat = float(df["위도"].mean())
@@ -184,12 +204,12 @@ if menu == "지도 보기":
             ),
             layers=layers,
             tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자수: {사상자수}",
-                     "style":{"color":"white"}}
+                     "style":{"color":"white", "backgroundColor":"#222", "padding":"5px","borderRadius":"5px"}}
         )
         st.pydeck_chart(deck, use_container_width=True)
 
         st.markdown("### 🚗 안전 경로 추천 (예시)")
-        st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.")
+        st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.", icon="⚡️")
 
 # -------------------------
 # 통계 보기 (지역명 숫자 제거 및 합산)
@@ -235,4 +255,42 @@ elif menu == "통계 보기":
 
         col1, col2, col3 = st.columns(3)
         col1.metric("🚗 사고 건수", f"{total_accidents:,}건")
-       
+        col2.metric("☠️ 사망자수", f"{fatalities:,}명")
+        col3.metric("🤕 부상자수", f"{injuries:,}명")
+
+        if type_col and type_col in filtered.columns:
+            by_type = filtered.groupby(type_col)["사고건수"].sum().reset_index()
+            fig = px.bar(by_type, x=type_col, y="사고건수", color=type_col,
+                         title=f"{selected_region}({selected_year}) 사고 유형별 현황",
+                         color_discrete_sequence=px.colors.sequential.Agsunset)
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
+
+# -------------------------
+# 시민 참여
+# -------------------------
+elif menu == "시민 참여":
+    st.title("🙋 시민 참여 공간")
+    tab1, tab2, tab3 = st.tabs(["🚨 위험 구역 제보", "🧱 개선 요청 게시판", "🚸 교통안전 캠페인 참여"])
+    
+    with tab1:
+        st.subheader("🚨 위험 구역 제보")
+        region = st.text_input("📍 위치/지역명")
+        issue_type = st.selectbox("🚧 문제 유형", ["신호등 고장","가로등 부족","횡단보도 없음","도로 파손","기타"])
+        detail = st.text_area("📝 상세 설명")
+        if st.button("제보 제출"):
+            st.success("✅ 제보가 접수되었습니다.")
+
+    with tab2:
+        st.subheader("🧱 개선 요청 게시판")
+        title = st.text_input("제목")
+        content = st.text_area("내용")
+        if st.button("요청 등록"):
+            st.success("✅ 요청이 등록되었습니다.")
+
+    with tab3:
+        st.subheader("🚸 교통안전 캠페인 참여")
+        choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
+        if st.button("참여하기"):
+            st.success("✅ 참여 완료!")
