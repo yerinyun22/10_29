@@ -1,239 +1,137 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
-import plotly.express as px
-from math import radians, sin, cos, sqrt, atan2
-from datetime import datetime
+import os
 
 # -------------------------
 # 페이지 설정
 # -------------------------
-st.set_page_config(
-    page_title="🛡️ 대한민국 안전지도",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="교통사고 위험지역 시각화", layout="wide")
 
 # -------------------------
-# ⚙️ 설정 (접이식 Expander)
-# -------------------------
-with st.sidebar.expander("⚙️ 설정 열기 / 닫기"):
-    st.markdown("### 사용자 설정")
-
-    # 글씨 크기
-    font_size = st.slider("글씨 크기 조정", 12, 30, 16)
-
-    # 글씨 색상
-    font_color = st.color_picker("글씨 색상 선택", "#000000")
-
-    # 밝기 설정
-    theme = st.radio("밝기 조정", ["밝음 모드", "어두움 모드"])
-    bg_color = "#ffffff" if theme == "밝음 모드" else "#1e1e1e"
-    text_color = font_color if theme == "밝음 모드" else "#f1f1f1"
-
-    # 현재 날짜와 시간
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.markdown(f"🕒 현재 시각: **{now}**")
-
-    # Q&A 질문
-    st.markdown("---")
-    st.markdown("### ❓ Q&A 질문")
-    user_question = st.text_area("궁금한 점을 입력하세요")
-    if st.button("질문 제출"):
-        st.success("✅ 질문이 접수되었습니다!")
-
-# -------------------------
-# 스타일 적용
-# -------------------------
-st.markdown(f"""
-<style>
-body, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stSidebar"] {{
-    background-color: {bg_color} !important;
-    color: {text_color} !important;
-    font-size: {font_size}px !important;
-}}
-h1, h2, h3, h4, h5, h6, p, label, div {{
-    color: {text_color} !important;
-    font-size: {font_size}px !important;
-}}
-[data-testid="stSidebar"] {{
-    background-color: {'#f9f9f9' if theme == '밝음 모드' else '#2e2e2e'} !important;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------
-# 거리 계산
-# -------------------------
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1-a))
-    return R * c
-
-# -------------------------
-# 데이터 로드
+# 데이터 로드 (샘플용)
 # -------------------------
 @st.cache_data
-def load_data(url="https://drive.google.com/uc?id=1c3ULCZImSX4ns8F9cIE2wVsy8Avup8bu&export=download"):
-    try:
-        df = pd.read_csv(url, encoding="utf-8")
-    except:
-        df = pd.read_csv(url, encoding="cp949")
-    df.columns = [c.strip() for c in df.columns]
-    return df
+def load_data():
+    data = pd.DataFrame({
+        '위도': [37.5665, 37.5651, 37.5700],
+        '경도': [126.9780, 126.9900, 126.9750],
+        '사고건수': [5, 3, 8],
+        '지역명': ['시청역', '을지로입구', '광화문']
+    })
+    return data
 
 data = load_data()
 
 # -------------------------
-# 메뉴 선택
+# QnA 저장용 CSV 파일
 # -------------------------
-menu = st.sidebar.radio("메뉴 선택", ["지도 보기", "통계 보기", "시민 참여"])
+qna_file = "qna_data.csv"
 
-# -------------------------
-# 공통 필터
-# -------------------------
-year_col = "사고연도" if "사고연도" in data.columns else ("연도" if "연도" in data.columns else None)
-type_col = "사고유형구분" if "사고유형구분" in data.columns else None
-
-if year_col:
-    years = sorted(data[year_col].dropna().unique().astype(int))
-    sel_year_range = st.sidebar.slider("연도 범위 선택", min_value=min(years), max_value=max(years),
-                                       value=(min(years), max(years)))
+if not os.path.exists(qna_file):
+    qna_df = pd.DataFrame(columns=["질문", "답변"])
+    qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
 else:
-    sel_year_range = None
-
-if type_col:
-    types = sorted(data[type_col].dropna().unique())
-    sel_types = st.sidebar.multiselect("사고유형 필터", options=types, default=types)
-else:
-    sel_types = None
-
-df = data.copy()
-if sel_year_range and year_col:
-    df = df[(df[year_col] >= sel_year_range[0]) & (df[year_col] <= sel_year_range[1])]
-if sel_types and type_col:
-    df = df[df[type_col].isin(sel_types)]
+    qna_df = pd.read_csv(qna_file)
 
 # -------------------------
-# 지도 보기
+# 사이드바 메뉴
 # -------------------------
+menu = st.sidebar.selectbox("메뉴 선택", ["지도 보기", "QnA 보기", "설정"])
+
+# ============================================================
+# 1️⃣ 지도 보기
+# ============================================================
 if menu == "지도 보기":
-    st.title("🗺️ 대한민국 사고다발지역 지도")
+    st.title("🚦 교통사고 위험지역 시각화")
 
-    has_latlon = {"위도","경도"}.issubset(df.columns)
-    if not has_latlon:
-        st.error("⚠️ 위도와 경도 컬럼이 필요합니다.")
-    else:
-        # 심각도 계산
-        def severity_score(row):
-            score = 0
-            if "사망자수" in row: score += 10 * (row["사망자수"] or 0)
-            if "중상자수" in row: score += 3 * (row["중상자수"] or 0)
-            if "경상자수" in row: score += 1 * (row["경상자수"] or 0)
-            if "사고건수" in row: score += 0.5 * (row["사고건수"] or 0)
-            return score
+    st.write("지도에서 사고 다발 지역을 확인하고, 클릭하면 세부 정보를 볼 수 있습니다.")
 
-        df["sev_score"] = df.apply(severity_score, axis=1)
+    layer = pdk.Layer(
+        'ScatterplotLayer',
+        data=data,
+        get_position='[경도, 위도]',
+        get_color='[255, 0, 0, 160]',
+        get_radius='사고건수 * 50',
+        pickable=True
+    )
 
-        # 색상
-        def severity_to_color(s):
-            if s >= 10: return [255, 0, 0, 230]
-            elif s >= 5: return [255, 80, 80, 200]
-            elif s >= 2: return [255, 150, 150, 170]
-            else: return [255, 200, 200, 140]
+    view_state = pdk.ViewState(
+        latitude=37.5665,
+        longitude=126.9780,
+        zoom=13,
+        pitch=0
+    )
 
-        df["color"] = df["sev_score"].apply(severity_to_color)
-        center_lat = float(df["위도"].mean())
-        center_lon = float(df["경도"].mean())
+    r = pdk.Deck(
+        layers=[layer],
+        initial_view_state=view_state,
+        tooltip={
+            "html": "<b>지역명:</b> {지역명}<br/><b>사고건수:</b> {사고건수}",
+            "style": {"color": "white"}
+        }
+    )
 
-        zoom_level = st.slider("지도 확대 수준 선택 (줌 레벨)", 4, 12, 6)
+    st.pydeck_chart(r)
 
-        if zoom_level <= 6:
-            df_plot = df[df["sev_score"] >= 5]
-        elif zoom_level <= 9:
-            df_plot = df[df["sev_score"] >= 2]
-        else:
-            df_plot = df.copy()
+# ============================================================
+# 2️⃣ QnA 보기
+# ============================================================
+elif menu == "QnA 보기":
+    st.title("💬 QnA 게시판")
 
-        layers = [
-            pdk.Layer(
-                "HeatmapLayer",
-                data=df_plot,
-                get_position=["경도","위도"],
-                aggregation="SUM",
-                weight="sev_score",
-                radiusPixels=60
-            ),
-            pdk.Layer(
-                "ScatterplotLayer",
-                data=df_plot,
-                get_position=["경도","위도"],
-                get_color="color",
-                get_radius=70,
-                pickable=True
-            )
-        ]
+    tab1, tab2 = st.tabs(["📄 질문 목록", "✏️ 새 질문 등록"])
 
-        deck = pdk.Deck(
-            map_style="mapbox://styles/mapbox/light-v9" if theme == "밝음 모드" else "mapbox://styles/mapbox/dark-v9",
-            initial_view_state=pdk.ViewState(
-                latitude=center_lat, longitude=center_lon, zoom=zoom_level
-            ),
-            layers=layers,
-            tooltip={"html":"<b>{사고지역위치명}</b><br/>사고건수: {사고건수}<br/>사상자수: {사상자수}",
-                     "style":{"color":"white"}}
-        )
-        st.pydeck_chart(deck, use_container_width=True)
-
-        st.markdown("### 🚗 안전 경로 추천 (예시)")
-        st.info("출발지와 목적지를 선택하면 사고율이 낮은 도로를 추천하도록 확장할 수 있습니다.")
-
-# -------------------------
-# 통계 보기
-# -------------------------
-elif menu == "통계 보기":
-    st.title("📊 사고 통계 분석")
-    stat_type = st.selectbox("보고 싶은 통계 유형 선택", ["구별 사고건수", "사고유형별 비율"])
-    
-    if stat_type == "구별 사고건수" and "사고다발지역시도시군구" in df.columns:
-        by_dist = df.groupby("사고다발지역시도시군구")["사고건수"].sum().sort_values(ascending=False).reset_index()
-        fig = px.bar(by_dist.head(15), x="사고다발지역시도시군구", y="사고건수", title="구별 사고건수 Top 15",
-                     color_discrete_sequence=["crimson"])
-        st.plotly_chart(fig, use_container_width=True)
-    
-    elif stat_type == "사고유형별 비율" and type_col:
-        by_type = df.groupby(type_col)["사고건수"].sum().sort_values(ascending=False).reset_index()
-        fig2 = px.pie(by_type, values="사고건수", names=type_col, title="사고유형별 비율",
-                      color_discrete_sequence=px.colors.sequential.Reds)
-        st.plotly_chart(fig2, use_container_width=True)
-
-# -------------------------
-# 시민 참여
-# -------------------------
-elif menu == "시민 참여":
-    st.title("🙋 시민 참여 공간")
-    tab1, tab2, tab3 = st.tabs(["🚨 위험 구역 제보", "🧱 개선 요청 게시판", "🚸 교통안전 캠페인 참여"])
-    
+    # -------------------
+    # 질문 목록
+    # -------------------
     with tab1:
-        st.subheader("🚨 위험 구역 제보")
-        region = st.text_input("📍 위치/지역명")
-        issue_type = st.selectbox("🚧 문제 유형", ["신호등 고장","가로등 부족","횡단보도 없음","도로 파손","기타"])
-        detail = st.text_area("📝 상세 설명")
-        if st.button("제보 제출"):
-            st.success("✅ 제보가 접수되었습니다.")
+        st.subheader("📋 등록된 질문들")
+        qna_df = pd.read_csv(qna_file)
 
+        if len(qna_df) == 0:
+            st.info("등록된 질문이 없습니다.")
+        else:
+            for i, row in qna_df.iterrows():
+                with st.expander(f"Q{i+1}. {row['질문']}"):
+                    st.write(f"**답변:** {row['답변'] if pd.notna(row['답변']) and row['답변'].strip() != '' else '아직 답변이 없습니다.'}")
+
+                    new_answer = st.text_area(f"답변 입력 (Q{i+1})", value=row['답변'] if pd.notna(row['답변']) else "")
+                    if st.button(f"💾 답변 저장 (Q{i+1})"):
+                        qna_df.at[i, '답변'] = new_answer
+                        qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
+                        st.success("답변이 저장되었습니다.")
+                        st.rerun()
+
+    # -------------------
+    # 새 질문 등록
+    # -------------------
     with tab2:
-        st.subheader("🧱 개선 요청 게시판")
-        title = st.text_input("제목")
-        content = st.text_area("내용")
-        if st.button("요청 등록"):
-            st.success("✅ 요청이 등록되었습니다.")
+        st.subheader("✏️ 새로운 질문 등록")
 
-    with tab3:
-        st.subheader("🚸 교통안전 캠페인 참여")
-        choice = st.radio("캠페인 선택", ["보행자 우선 캠페인","음주운전 근절 서약","안전벨트 착용 인증"])
-        if st.button("참여하기"):
-            st.success("✅ 참여 완료!")
+        new_question = st.text_area("질문 내용을 입력하세요")
+
+        if st.button("📤 질문 등록"):
+            if new_question.strip() == "":
+                st.warning("질문 내용을 입력해야 합니다.")
+            else:
+                new_row = pd.DataFrame([[new_question, ""]], columns=["질문", "답변"])
+                qna_df = pd.concat([qna_df, new_row], ignore_index=True)
+                qna_df.to_csv(qna_file, index=False, encoding="utf-8-sig")
+                st.success("질문이 등록되었습니다.")
+                st.rerun()
+
+# ============================================================
+# 3️⃣ 설정
+# ============================================================
+elif menu == "설정":
+    st.title("⚙️ 지도 설정")
+
+    map_style = st.selectbox(
+        "지도 스타일 선택",
+        ["light", "dark", "streets", "satellite"]
+    )
+
+    st.write(f"현재 선택된 지도 스타일: `{map_style}`")
+
+    st.info("이 기능은 이후 지도 표시 시 적용될 예정입니다.")
